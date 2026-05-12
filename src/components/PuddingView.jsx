@@ -790,13 +790,13 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       
       const success = await api.saveStationResponse(projectId, stationName, {
         ...(current.response_data || {}),
-        status: 'rewrite_ok',
+        status: 'rewrites', // 同録待ちに移行せず、リライト待ちに留める
         revised_sent: true,
         revised_sent_at: new Date().toISOString()
       });
       
       if (success) {
-        alert('修正稿を送信しました。同録待ちに移行します。');
+        alert('修正稿を送信しました。放送局の確認をお待ちください。');
         fetchProjects();
         if (selectedBoardProject) {
           const res = await api.getStationResponses(selectedBoardProject.id);
@@ -1365,9 +1365,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
               if (resp) console.log('Found response for', s, ':', resp.response_data);
              let currentStatus = 'slots'; 
              if (resp) {
-               if (resp.status === 'registered') currentStatus = 'materials';
-               else if (resp.status === 'material_ok') currentStatus = 'rewrites';
-               else if (resp.status === 'rewrite_ok') currentStatus = 'recordings';
+                if (resp.status === 'registered' || resp.status === 'pending') currentStatus = 'materials';
+                else if (resp.status === 'material_ok' || resp.status === 'rewrites') currentStatus = 'rewrites';
+                else if (resp.status === 'rewrite_ok' || resp.status === 'recordings') currentStatus = 'recordings';
              }
                return { 
                  id: `${selectedBoardProject.id}-${s}`, 
@@ -1408,7 +1408,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                  sponsor: p.sponsor_name || p.metadata?.sponsor || '未設定', 
                  station: stationName, 
                  status: (respStatus === 'registered' || respStatus === 'pending') ? 'materials' :
-                         respStatus === 'material_ok' ? 'rewrites' :
+                         (respStatus === 'material_ok' || respStatus === 'rewrites') ? 'rewrites' :
                          respStatus === 'rewrite_ok' ? 'recordings' :
                          p.status === 'requesting' ? 'slots' : p.status,
                  has_material: response.has_material || false,
@@ -1547,17 +1547,17 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                               <Upload size={12} /> 修正稿UP
                                            </button>
                                            <button 
-                                              disabled={!item.has_revised_material}
-                                              onClick={(e) => { e.stopPropagation(); alert('修正稿を送信しました。同録待ちに移行します。'); api.saveStationResponse(item.projectId || item.id, item.station, { status: 'rewrite_ok' }); fetchProjects(); }} 
+                                              disabled={!item.has_revised_material || item.revised_sent}
+                                              onClick={(e) => { e.stopPropagation(); handleRevisedSend(item.projectId || item.id, item.station); }} 
                                               style={{ 
                                                 flex: '1', padding: '10px', borderRadius: '12px', 
-                                                backgroundColor: item.has_revised_material ? '#3E2723' : '#94a3b8', 
+                                                backgroundColor: (item.has_revised_material && !item.revised_sent) ? '#3E2723' : '#94a3b8', 
                                                 color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', 
-                                                cursor: item.has_revised_material ? 'pointer' : 'not-allowed', 
+                                                cursor: (item.has_revised_material && !item.revised_sent) ? 'pointer' : 'not-allowed', 
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' 
                                               }}
                                             >
-                                              <Check size={12} /> 送信
+                                               <Check size={12} /> {item.revised_sent ? '送信済' : '送信'}
                                            </button>
                                         </div>
                                         <button onClick={(e) => { e.stopPropagation(); handleNoRevision(item.projectId || item.id, item.station); }} style={{ width: '100%', padding: '10px', borderRadius: '12px', backgroundColor: 'white', color: '#64748b', border: '1.5px solid #e2e8f0', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
@@ -1586,6 +1586,26 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                           <button onClick={(e) => { e.stopPropagation(); handleRewriteUpload(item.projectId || item.id, item.station); }} style={{ width: '100%', padding: '10px', borderRadius: '12px', backgroundColor: '#f59e0b', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                                              <Edit size={14} /> リライト原稿UP
                                           </button>
+                                          <button 
+                                              onClick={(e) => { e.stopPropagation(); handleRevisedDownload(item.projectId || item.id, item.station); }} 
+                                              style={{ 
+                                                width: '100%', padding: '10px', borderRadius: '12px', 
+                                                backgroundColor: '#3b82f6', 
+                                                color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', 
+                                                cursor: 'pointer', 
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' 
+                                              }}
+                                           >
+                                              <Download size={14} /> 修正稿DL
+                                           </button>
+                                           {item.revised_sent && (
+                                              <button 
+                                                onClick={(e) => { e.stopPropagation(); if(confirm('修正稿を確認しました。同録待ちへ移動しますか？')) { api.saveStationResponse(item.projectId || item.id, item.station, { status: 'rewrite_ok' }); fetchProjects(); } }}
+                                                style={{ width: '100%', marginTop: '8px', padding: '10px', borderRadius: '12px', backgroundColor: '#10b981', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                                              >
+                                                <Check size={14} /> 同録待ちへ移動
+                                              </button>
+                                           )}
                                           {item.has_rewrite && item.rewrite_filename && (
                                              <div style={{ fontSize: '9px', color: '#059669', backgroundColor: '#ecfdf5', padding: '6px 8px', borderRadius: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', border: '1px solid #d1fae5' }}>
                                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
@@ -1620,21 +1640,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                                 <Check size={12} /> {item.rewrite_sent ? '送信済' : '送信'}
                                              </button>
                                           </div>
-                                          <button 
-                                             disabled={!item.has_revised_material}
-                                             onClick={(e) => { e.stopPropagation(); handleRevisedDownload(item.projectId || item.id, item.station); }} 
-                                             style={{ 
-                                                width: '100%', padding: '10px', borderRadius: '12px', 
-                                                backgroundColor: item.has_revised_material ? '#3b82f6' : '#f8fafc', 
-                                                color: item.has_revised_material ? 'white' : '#cbd5e1', 
-                                                border: item.has_revised_material ? 'none' : '1.5px solid #e2e8f0', 
-                                                fontSize: '11px', fontWeight: '950', 
-                                                cursor: item.has_revised_material ? 'pointer' : 'not-allowed', 
-                                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' 
-                                             }}
-                                          >
-                                             <Download size={14} /> 修正稿DL
-                                          </button>
                                        </div>
                                     </>
                                   )
