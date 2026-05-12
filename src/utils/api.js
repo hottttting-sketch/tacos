@@ -423,19 +423,9 @@ export const api = {
       console.warn('[API] uploadMaterialFile: attachments bucket failed:', attError.message);
     } catch (e) {}
     
-    // Fallback 2: Save file info locally (simulation mode)
-    console.warn('[API] All storage methods failed. Using local simulation mode for:', file.name);
-    const localPath = `local_${fileName}`;
-    const localMaterials = JSON.parse(localStorage.getItem('tabasco_uploaded_materials') || '[]');
-    localMaterials.push({
-      path: localPath,
-      originalName: file.name,
-      size: file.size,
-      type: file.type,
-      uploadedAt: new Date().toISOString()
-    });
-    localStorage.setItem('tabasco_uploaded_materials', JSON.stringify(localMaterials));
-    return localPath;
+    // Fallback 2: Remove local simulation and throw error
+    console.error('[API] All storage methods failed for material:', file.name);
+    throw new Error(`ストレージへのアップロードに失敗しました (${file.name})。バケット設定を確認してください。`);
   },
   getMaterialUrl: async (path) => {
     if (!path) return null;
@@ -706,9 +696,9 @@ export const api = {
     const { data: attData, error: attError } = await supabase.storage.from('attachments').upload(fileName, file);
     if (!attError) return attData.path;
     
-    // Fallback: local simulation
-    console.warn('[API] All storage methods failed for recording. Using local simulation.');
-    return `local_${fileName}`;
+    // Fallback: throw error
+    console.error('[API] All storage methods failed for recording.');
+    throw new Error('同録ファイルのアップロードに失敗しました。ストレージ設定を確認してください。');
   },
   getRecordingUrl: async (path) => {
     if (!path) return null;
@@ -752,9 +742,9 @@ export const api = {
     const { data: attData, error: attError } = await supabase.storage.from('attachments').upload(fileName, file);
     if (!attError) return attData.path;
     
-    // Fallback: local simulation
-    console.warn('[API] All storage methods failed for rewrite. Using local simulation.');
-    return `local_${fileName}`;
+    // Fallback: throw error
+    console.error('[API] All storage methods failed for rewrite.');
+    throw new Error('リライト原稿のアップロードに失敗しました。ストレージ設定を確認してください。');
   },
   getRewriteUrl: async (path) => {
     if (!path) return null;
