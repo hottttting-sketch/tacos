@@ -1,0 +1,588 @@
+:root {
+  --tacos-red: #E21C26;
+  --tacos-yellow: #FFC107;
+  --tacos-green: #4CAF50;
+  --tacos-brown: #5D4037;
+  --tacos-cream: #FFFDE6;
+  
+  /* Tacos Brand Theme Variables */
+  --tacos-brand-yellow: #FEE101;
+  --tacos-brand-brown: #8B4513;
+  --tacos-brand-cream: #FFFDE6;
+  --tacos-brand-accent: #FFD700;
+
+  --brand-primary: var(--tacos-red);
+  --tacos-black: #212529;
+  --tacos-gray: #6c757d;
+  --tacos-smoke: #FFFCE6;
+  --sidebar-bg: #FFFDF0;
+  --border-color: #F1E4C9;
+  --text-primary: #3E2723;
+  --text-secondary: #8D6E63;
+  --accent-blue: #2196F3;
+  --accent-purple: #9C27B0;
+  --sans: 'Inter', 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --transition-fast: 0.15s ease;
+  --transition-medium: 0.25s ease;
+  --card-shadow: 0 4px 15px rgba(226, 28, 38, 0.08);
+
+  /* Pudding Theme Base Variables */
+  --pudding-primary: #FFD93D;
+  --pudding-accent: #8B4513;
+  --pudding-bg: #FFFDF0;
+  --pudding-header: #FFF5CC;
+  --pudding-text: #3E2723;
+  --pudding-border: #F1E4C9;
+
+  /* Tempra Theme Base Variables */
+  --tempra-primary: #FFB74D;
+  --tempra-accent: #E65100;
+  --tempra-bg: #FFF8E1;
+  --tempra-header: #FFECB3;
+  --tempra-text: #4E342E;
+}
+
+/* Pudding Theme Overrides */
+.theme-pudding {
+  --brand-primary: var(--pudding-primary);
+  --sidebar-bg: var(--pudding-bg);
+  --border-color: var(--pudding-border);
+  --text-primary: var(--pudding-text);
+  --tacos-red: var(--pudding-primary); /* Redirect Tacos-red to Pudding-yellow */
+  --tacos-smoke: var(--pudding-header);
+  --card-shadow: 0 4px 15px rgba(139, 69, 19, 0.1);
+}
+
+.theme-pudding .btn-primary {
+  background-color: var(--pudding-primary);
+  color: var(--pudding-accent);
+  box-shadow: 0 4px 10px rgba(255, 217, 61, 0.3);
+  border: 1px solid #FBC02D;
+}
+
+.theme-pudding .btn-primary:hover {
+  background-color: #FBC02D;
+  box-shadow: 0 6px 15px rgba(255, 217, 61, 0.4);
+}
+
+.theme-pudding .sidebar-header {
+  background-color: var(--pudding-header);
+}
+
+.theme-pudding .sidebar-item.active {
+  background-color: #fff;
+  border-color: var(--pudding-primary);
+  color: var(--pudding-accent);
+}
+
+.theme-pudding .search-bar {
+  background-color: var(--pudding-header);
+  border-color: var(--pudding-border);
+}
+
+.theme-pudding .search-bar:focus-within {
+  background-color: #fff;
+}
+
+.theme-pudding .segmented-control {
+  background-color: var(--pudding-header);
+  border-color: var(--pudding-border);
+}
+
+.theme-pudding .premium-table th {
+  background-color: var(--pudding-header);
+  color: var(--pudding-accent);
+}
+
+.theme-pudding .top-nav {
+  border-bottom: 2px solid var(--pudding-border);
+}
+
+.theme-pudding body {
+  background-color: var(--pudding-bg);
+}
+
+/* Tempra Theme Overrides */
+.theme-tempra {
+  --brand-primary: var(--tempra-primary);
+  --sidebar-bg: var(--tempra-bg);
+  --border-color: #FFE082;
+  --text-primary: var(--tempra-text);
+}
+
+.theme-tempra .segmented-control {
+  background-color: var(--tempra-header);
+  border-color: #FFE082;
+}
+
+.theme-tempra .top-nav {
+  border-bottom: 2px solid #FFE082;
+}
+
+.theme-tempra .sidebar-header {
+  background-color: var(--tempra-header);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--sans);
+  background-color: #fff;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+.glass-card {
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--card-shadow);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.glass-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+/* Custom Scrollbar for Agency Form */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #dfe1e5;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #c1c4c8;
+}
+
+.btn-primary {
+  background-color: var(--tacos-red);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: 0 4px 10px rgba(226, 28, 38, 0.2);
+}
+
+.btn-primary:hover {
+  background-color: #f0252f;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 15px rgba(226, 28, 38, 0.3);
+}
+
+.btn-secondary {
+  background-color: var(--tacos-yellow);
+  color: var(--tacos-brown);
+  border: 1px solid #FFE082;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-secondary:hover {
+  background-color: #FFD54F;
+  border-color: #FFD54F;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-scale-up {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-modal-enter {
+  animation: modal-scale-up 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-modal-backdrop {
+  animation: modal-fade-in 0.2s ease-out forwards;
+}
+
+.animate-fade {
+  animation: fadeIn var(--transition-medium) forwards;
+}
+
+.animate-slide {
+  animation: slideInRight var(--transition-medium) forwards;
+}
+
+/* Sidebar Styles */
+.sidebar {
+  width: var(--sidebar-width, 260px);
+  background-color: var(--sidebar-bg);
+  border-right: 1px solid var(--border-color);
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s ease;
+  z-index: 1000;
+}
+
+.sidebar-header {
+  padding: 24px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 8px;
+}
+
+.sidebar-logo-icon {
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, var(--tacos-brand-brown), var(--tacos-brand-yellow));
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 800;
+  box-shadow: 0 2px 8px rgba(139, 69, 19, 0.2);
+}
+
+.sidebar-icon-wrapper {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  transition: transform var(--transition-fast);
+}
+
+.sidebar-item:hover .sidebar-icon-wrapper {
+  transform: scale(1.1);
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+}
+
+.sidebar-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  padding: 6px 4px 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-radius: 8px;
+  color: #4a4d50;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.sidebar-item:hover {
+  background-color: #e9ecef;
+  color: var(--tacos-black);
+}
+
+.sidebar-item.active {
+  background-color: #fff;
+  color: var(--tacos-brand-brown);
+  box-shadow: 0 2px 6px rgba(139, 69, 19, 0.1);
+  border: 1.5px solid var(--tacos-brand-yellow);
+}
+
+.sidebar-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Layout Wrapper */
+.layout-wrapper {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar.collapsed {
+  width: var(--sidebar-collapsed-width, 80px);
+}
+
+.sidebar.collapsed .sidebar-header {
+  padding: 24px 0;
+  justify-content: center;
+}
+
+.sidebar.collapsed .sidebar-header div:last-child,
+.sidebar.collapsed .sidebar-group-title,
+.sidebar.collapsed .sidebar-item span,
+.sidebar.collapsed .sidebar-footer span {
+  display: none;
+}
+
+.sidebar.collapsed .sidebar-item {
+  justify-content: center;
+  padding: 12px 0;
+}
+
+.sidebar.collapsed .sidebar-nav {
+  padding: 12px 8px;
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: #fff;
+  transition: margin-left 0.3s ease;
+}
+
+.top-nav {
+  height: 64px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(10px, 2vw, 32px);
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 999;
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  background: var(--tacos-smoke);
+  border-radius: 20px;
+  padding: 6px 16px;
+  max-width: 320px;
+  width: 100%;
+  flex-shrink: 1;
+  min-width: 100px;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.search-bar:focus-within {
+  background: #fff;
+  border-color: #ced4da;
+  box-shadow: 0 0 0 4px rgba(0,0,0,0.02);
+}
+
+.search-bar input {
+  background: transparent;
+  border: none;
+  outline: none;
+  width: 100%;
+  font-size: 14px;
+  padding-left: 8px;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1.5vw, 20px);
+}
+
+/* Segmented Control (Slide Button) */
+.segmented-control {
+  display: flex;
+  background-color: var(--tacos-smoke);
+  border-radius: 20px;
+  padding: 4px;
+  position: relative;
+  border: 1px solid var(--border-color);
+  min-width: 120px;
+}
+
+.segmented-item {
+  flex: 1;
+  text-align: center;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 16px;
+  transition: color var(--transition-fast);
+  z-index: 2;
+  white-space: nowrap;
+}
+
+.segmented-item.active {
+  color: var(--tacos-red);
+}
+
+.theme-pudding .segmented-item.active {
+  color: var(--pudding-accent);
+}
+
+.theme-tempra .segmented-item.active {
+  color: var(--tempra-accent);
+}
+
+.segmented-slider {
+  position: absolute;
+  top: 4px;
+  height: calc(100% - 8px);
+  background-color: white;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: transform var(--transition-medium), width var(--transition-medium);
+  z-index: 1;
+}
+
+/* Premium Table Styles */
+.premium-table-container {
+  background: white;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid #e1e4e8;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+  margin-bottom: 40px;
+}
+
+.premium-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: left;
+  font-size: 13px;
+}
+
+.premium-table th {
+  padding: 16px;
+  font-weight: 800;
+  color: #8c9196;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background-color: rgba(248, 249, 250, 0.8);
+  backdrop-filter: blur(4px);
+  border-bottom: 2px solid #f1f3f5;
+  white-space: nowrap;
+}
+
+.premium-table tr {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-bottom: 1px solid #f1f3f5;
+}
+
+.premium-table tr:last-child {
+  border-bottom: none;
+}
+
+.premium-table tr:hover {
+  background-color: rgba(248, 249, 250, 0.6);
+  transform: scale(1.002);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+  z-index: 10;
+  position: relative;
+}
+
+.premium-table tr.selected {
+  background-color: rgba(226, 28, 38, 0.03);
+}
+
+.premium-table tr.selected:hover {
+  background-color: rgba(226, 28, 38, 0.05);
+}
+
+.premium-table td {
+  padding: 16px;
+  vertical-align: middle;
+}
+
+.premium-table .station-name {
+  font-weight: 900;
+  color: #212529;
+  font-size: 15px;
+}
+
+.premium-table .status-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 800;
+  display: inline-block;
+}
+
+.premium-table .numeric-value {
+  font-weight: 900;
+  color: #212529;
+  letter-spacing: -0.02em;
+}
+
+.premium-table .numeric-value.highlight {
+  color: var(--tacos-red);
+}
+
+.premium-table .actions-cell {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+}
+
+
+/* Universally hide iframe scrollbars without cutting off content */
+iframe {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+iframe::-webkit-scrollbar {
+  display: none !important;
+}
+
+
+/* Hide canvas container scrollbar completely */
+.custom-scrollbar-hidden {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.custom-scrollbar-hidden::-webkit-scrollbar {
+  display: none !important;
+}
+
+
+/* Hide canvas container scrollbars */
+.custom-scrollbar-hidden {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.custom-scrollbar-hidden::-webkit-scrollbar {
+  display: none !important;
+}
