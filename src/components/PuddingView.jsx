@@ -119,8 +119,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       });
       setProjects(parsedData);
       
-      // 放送局UIの場合、station responsesも同時に取得
-      if (role === 'broadcaster') {
+      // 放送局UIまたは案件ボード表示中の場合は、station responsesも同期
+      if (role === 'broadcaster' || activeTab === 'board') {
         await fetchBroadcasterResponses(parsedData);
       }
       
@@ -421,16 +421,24 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       alert(`ファイルを選択しました（${files.length}件）。アップロードを開始します...`);
       setIsSubmitting(true);
       try {
-        const paths = await Promise.all(files.map(file => api.uploadMaterialFile(file)));
+        const uploadResults = await Promise.all(files.map(async file => ({
+          path: await api.uploadMaterialFile(file),
+          originalName: file.name
+        })));
+        const paths = uploadResults.map(r => r.path);
+        const originalNames = uploadResults.map(r => r.originalName);
         const resp = await api.getStationResponses(projectId);
         const current = resp.find(r => r.station_name === stationName) || {};
         
         const existingPaths = current.response_data?.material_paths || [];
+        const existingNames = current.response_data?.material_names || [];
         if (current.response_data?.material_path && !existingPaths.includes(current.response_data.material_path)) {
           existingPaths.push(current.response_data.material_path);
         }
         
         const newPaths = Array.from(new Set([...existingPaths, ...paths]));
+        // パスに対応する名前を維持するための簡易マッピング（実際はもっと厳密にするべきだが、今回は追加分を連結）
+        const newNames = [...existingNames, ...originalNames].slice(0, newPaths.length);
 
         console.log('Saving station response:', { projectId, stationName, has_material: true });
         const success = await api.saveStationResponse(projectId, stationName, {
@@ -439,6 +447,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
           has_material: true,
           material_path: newPaths[0],
           material_paths: newPaths,
+          material_names: newNames,
           material_uploaded_at: new Date().toISOString()
         });
         
@@ -455,6 +464,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                 has_material: true,
                 material_path: newPaths[0],
                 material_paths: newPaths,
+                material_names: newNames,
                 material_uploaded_at: new Date().toISOString()
               });
             }
@@ -462,7 +472,13 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
           alert(`${stationName} ${others.length > 0 ? `および他${others.length}局` : ''} の素材（${files.length}件）をアップロードしました。送信ボタンで確定してください。`);
           fetchProjects();
-          if (selectedBoardProject) {
+          
+          if (role === 'broadcaster' || activeTab === 'board') {
+             const res = await api.getStationResponses(projectId);
+             setBroadcasterResponses(prev => ({ ...prev, [projectId]: res }));
+          }
+
+          if (selectedBoardProject && selectedBoardProject.id === projectId) {
             const res = await api.getStationResponses(selectedBoardProject.id);
             setSelectedProjectResponses(res || []);
           }
@@ -479,6 +495,86 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
     });
 
     input.click();
+  }; 
+  const handleDeleteMaterialFile = async (projectId, stationName, index) => {
+    if (!window.confirm('このファイルを削除してもよろしいですか？')) return;
+    
+    setIsSubmitting(true);
+    try {
+      console.log('[Delete] Starting deletion for:', { projectId, stationName, index });
+      const resp = await api.getStationResponses(projectId);
+      const current = resp.find(r => r.station_name === stationName) || {};
+      const data = current.response_data || {};
+      
+      const newPaths = [...(data.material_paths || [])];
+      const newNames = [...(data.material_names || [])];
+      
+      if (index >= 0 && index < newPaths.length) {
+        newPaths.splice(index, 1);
+        if (newNames.length > index) newNames.splice(index, 1);
+      } else {
+        console.warn('[Delete] Index out of bounds:', index);
+      }
+      
+      const hasMaterial = newPaths.length > 0;
+      
+      const updateData = {
+        ...data,
+        has_material: hasMaterial,
+        material_path: hasMaterial ? newPaths[0] : null,
+        material_paths: newPaths,
+        material_names: newNames,
+        last_updated: new Date().toISOString()
+      };
+
+      console.log('[Delete] Saving updated response:', updateData);
+      const success = await api.saveStationResponse(projectId, stationName, updateData);
+      
+      if (success) {
+        // 他の局にも同期（素材待ちかつ未送信の場合）
+        const allRes = await api.getStationResponses(projectId);
+        const others = allRes.filter(r => r.station_name !== stationName && r.status === 'registered');
+        for (const other of others) {
+          await api.saveStationResponse(projectId, other.station_name, {
+            ...(other.response_data || {}),
+            has_material: hasMaterial,
+            material_path: hasMaterial ? newPaths[0] : null,
+            material_paths: newPaths,
+            material_names: newNames
+          });
+        }
+
+        // 全体の状態を更新
+        await fetchProjects();
+        
+        // 代理店ボードの場合の追加更新
+        if (selectedBoardProject) {
+          const res = await api.getStationResponses(selectedBoardProject.id);
+          setSelectedProjectResponses(res || []);
+        }
+        
+        // 状態を更新
+        if (role === 'broadcaster' || activeTab === 'board') {
+           const res = await api.getStationResponses(projectId);
+           setBroadcasterResponses(prev => ({ ...prev, [projectId]: res }));
+        }
+        
+        if (selectedBoardProject && selectedBoardProject.id === projectId) {
+           const res = await api.getStationResponses(projectId);
+           setSelectedProjectResponses(res || []);
+        }
+
+        alert('ファイルを削除しました。');
+        console.log('[Delete] Successfully completed');
+      } else {
+        throw new Error('Save failed');
+      }
+    } catch (e) {
+      console.error('[Delete] Failed:', e);
+      alert('削除に失敗しました。詳細: ' + (e.message || '不明なエラー'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleMaterialUpload = async (projectId, stationName) => {
@@ -1005,7 +1101,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
   // 放送局UIの場合、全案件のstation responsesを取得してキャッシュする
   const fetchBroadcasterResponses = async (projectList) => {
-    if (role !== 'broadcaster' || !projectList || projectList.length === 0) return;
+    if ((role !== 'broadcaster' && activeTab !== 'board') || !projectList || projectList.length === 0) return;
     const responseMap = {};
     for (const p of projectList) {
       try {
@@ -1207,89 +1303,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
       case 'new-request':
         return (
-          <PageView title="新規パブリシティ依頼" desc="詳細を入力して、各放送局へ一括依頼を送信します。" icon={Plus} color="#FFD93D">
-             <div style={{ backgroundColor: 'white', padding: '48px', borderRadius: '32px', border: '1.5px solid #F1E4C9' }}>
-                <div style={{ display: 'grid', gap: '28px' }}>
-                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                      <div className="input-group">
-                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>スポンサー</label>
-                         <input type="text" value={sponsorName} onChange={(e) => setSponsorName(e.target.value)} placeholder="例：サントリー株式会社" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700' }} />
-                      </div>
-                      <div className="input-group">
-                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>BA (担当者)</label>
-                         <select 
-                           value={selectedBa}
-                           onChange={(e) => setSelectedBa(e.target.value)}
-                           style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white' }}
-                         >
-                            <option value="">BAを選択してください</option>
-                            {(maBaMappings['本社'] || []).map(baOrg => <option key={baOrg} value={baOrg}>{baOrg}</option>)}
-                         </select>
-                      </div>
-                   </div>
-                   <div className="input-group">
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>案件名</label>
-                      <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="例：春の新商品キャンペーン" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '800' }} />
-                   </div>
-                   <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px' }}>
-                       <div className="input-group">
-                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>依頼期間</label>
-                          <div onClick={() => setActiveModal('period')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                             <Calendar size={18} color="#8B4513" />
-                             <span style={{ color: requestDateRange.start ? '#3E2723' : '#94a3b8' }}>
-                                {requestDateRange.start && requestDateRange.end ? `${requestDateRange.start} 〜 ${requestDateRange.end}` : '期間を選択してください'}
-                             </span>
-                          </div>
-                       </div>
-                       <div className="input-group">
-                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>依頼ゾーン</label>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                             <div onClick={() => setActiveModal('zone')} style={{ flex: 1, padding: '14px 10px', borderRadius: '16px', border: '2px solid #F1E4C9', textAlign: 'center', fontWeight: '950', cursor: 'pointer', backgroundColor: 'white' }}>{startHour}:00</div>
-                             <span>〜</span>
-                             <div onClick={() => setActiveModal('zone')} style={{ flex: 1, padding: '14px 10px', borderRadius: '16px', border: '2px solid #F1E4C9', textAlign: 'center', fontWeight: '950', cursor: 'pointer', backgroundColor: 'white' }}>{endHour}:00</div>
-                          </div>
-                       </div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                       <div className="input-group">
-                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '12px' }}>パブ種別</label>
-                          <div onClick={() => setActiveModal('pubType')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', flexWrap: 'wrap', gap: '8px', minHeight: '56px' }}>
-                             {selectedPubTypes.map(type => <span key={type} style={{ padding: '4px 12px', borderRadius: '8px', backgroundColor: '#FFFBE6', color: '#8B4513', fontSize: '12px', fontWeight: '900', border: '1px solid #FFD93D' }}>{type}</span>)}
-                             {selectedPubTypes.length === 0 && <span style={{ color: '#94a3b8' }}>選択してください</span>}
-                          </div>
-                       </div>
-                       <div className="input-group">
-                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '12px' }}>素材搬入開始日</label>
-                          <input type="date" value={materialDeadline} onChange={(e) => setMaterialDeadline(e.target.value)} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700' }} />
-                       </div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                       <div className="input-group">
-                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>リライト共有者</label>
-                          <div onClick={() => setActiveModal('reviewer-rewrite')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                             <Users size={18} /> <span>{rewriteReviewer || '担当者を選択'}</span>
-                          </div>
-                       </div>
-                       <div className="input-group">
-                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>同録共有者</label>
-                          <div onClick={() => setActiveModal('reviewer-recording')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                             <Users size={18} /> <span>{recordingReviewer || '担当者を選択'}</span>
-                          </div>
-                       </div>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', padding: '24px 0 0 0', borderTop: '1px solid #F1E4C9' }}>
-                       <button style={{ padding: '14px 32px', borderRadius: '16px', fontWeight: '950', backgroundColor: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0' }}>下書き保存</button>
-                       <button style={{ padding: '14px 32px', borderRadius: '16px', fontWeight: '950', backgroundColor: '#FFFBE6', color: '#8B4513', border: '2px solid #FFD93D' }} onClick={() => setActiveTab('select-stations')}><Monitor size={18} /> 依頼局選択</button>
-                       <button style={{ padding: '14px 56px', borderRadius: '16px', fontWeight: '950', backgroundColor: isSubmitting ? '#94a3b8' : '#3E2723', color: 'white', border: 'none', cursor: isSubmitting ? 'wait' : 'pointer' }} onClick={handleCreateProject} disabled={isSubmitting}>{isSubmitting ? '送信中...' : '送信する'}</button>
-                    </div>
-                 </div>
-              </div>
-          </PageView>
-        );
-
-      case 'users':
-        return (
-          <PageView title="ユーザー・アカウント管理" desc="システム利用権限と業務範囲を設定します。" icon={Users} color="#1e293b">
+                      <PageView title="ユーザー・アカウント管理" desc="システム利用権限と業務範囲を設定します。" icon={Users} color="#1e293b">
              <div style={{ display: 'grid', gap: '24px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                    <div style={{ display: 'flex', gap: '8px', padding: '6px', backgroundColor: '#f1f5f9', borderRadius: '16px' }}>
@@ -1362,7 +1376,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
            const stations = selectedBoardProject.metadata?.selectedStations || [];
            boardItems = stations.map(s => {
              const resp = selectedProjectResponses.find(r => r.station_name === s);
-              if (resp) console.log('Found response for', s, ':', resp.response_data);
              let currentStatus = 'slots'; 
              if (resp) {
                 if (resp.status === 'registered' || resp.status === 'pending') currentStatus = 'materials';
@@ -1379,9 +1392,10 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                  has_material: resp?.response_data?.has_material || false,
                  material_sent: resp?.response_data?.material_sent || false,
                  material_paths: resp?.response_data?.material_paths || [],
+                 material_names: resp?.response_data?.material_names || [],
                  has_revised_material: resp?.response_data?.has_revised_material || false,
                  revised_sent: resp?.response_data?.revised_sent || false,
-                revised_filename: resp?.response_data?.revised_filename || null,
+                 revised_filename: resp?.response_data?.revised_filename || null,
                  has_recording: resp?.response_data?.has_recording || false,
                  has_rewrite: resp?.response_data?.has_rewrite || false,
                  rewrite_sent: resp?.response_data?.rewrite_sent || false,
@@ -1390,7 +1404,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                };
            });
         } else {
-           boardItems = projects.map(p => {
+           boardItems = projects.filter(p => p.status !== 'cancelled').map(p => {
               const requestedStations = p.metadata?.selectedStations || [];
               let stationName = fullProfile?.broadcaster_name || fullProfile?.name || '系列局A';
               
@@ -1398,7 +1412,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                  stationName = requestedStations[0];
               }
 
-              // station_responsesテーブルからデータを取得（metadata依存をやめて直接参照）
               const projectResponses = broadcasterResponses[p.id] || [];
               const stationResp = projectResponses.find(r => r.station_name === stationName);
               const response = stationResp?.response_data || p.metadata?.[`response_${stationName}`] || {};
@@ -1414,14 +1427,15 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                  has_material: response.has_material || false,
                  material_sent: response.material_sent || false,
                  material_paths: response.material_paths || [],
+                 material_names: response.material_names || [],
                  has_revised_material: response.has_revised_material || false,
                  revised_sent: response.revised_sent || false,
-                  revised_filename: response.revised_filename || null,
+                 revised_filename: response.revised_filename || null,
                  has_recording: response.has_recording || false,
                  has_rewrite: response.has_rewrite || false,
                  rewrite_sent: response.rewrite_sent || false,
-                  rewrite_filename: response.rewrite_filename || null,
-                  rewrite_deadline: response.rewrite_deadline || null
+                 rewrite_filename: response.rewrite_filename || null,
+                 rewrite_deadline: response.rewrite_deadline || null
               };
            });
         }
@@ -1476,7 +1490,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                             <div style={{ fontWeight: '950', fontSize: '14px', color: '#3E2723', marginBottom: '4px' }}>{item.name}</div>
                             <div style={{ fontSize: '11px', color: '#8B4513', fontWeight: '700', marginBottom: '12px' }}>{item.sponsor}</div>
                             <div style={{ paddingTop: '12px', borderTop: '1px dashed #F1E4C9', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                               {col.id === 'slots' && (
+                               {col.id === 'slots' && role !== 'agency' && (
                                   <button onClick={(e) => { e.stopPropagation(); setSelectedRequest(item); setActiveTab('slot-registration'); }} style={{ width: '100%', padding: '10px', borderRadius: '12px', backgroundColor: '#3E2723', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                                      <Clock size={14} /> 枠詳細登録
                                   </button>
@@ -1492,8 +1506,25 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                                <div style={{ fontSize: '9px', color: '#065f46', borderTop: '1px solid #d1fae5', paddingTop: '4px', marginTop: '2px', opacity: 0.8 }}>
                                                   {(item.material_paths || []).map((path, idx) => {
                                                      const fileName = path.split('/').pop();
-                                                     const displayName = fileName.includes('_') ? fileName.split('_').slice(2).join('_').replace(/-\d+(\.[^.]+)$/, '$1') : fileName;
-                                                     return <div key={idx} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>・{displayName}</div>
+                                                     const displayName = item.material_names?.[idx] || (fileName.includes('_') ? fileName.split('_').slice(2).join('_').replace(/-\d+(\.[^.]+)+$/, '$1') : fileName);
+                                                     return (
+                                                         <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
+                                                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>・{displayName}</div>
+                                                            {!item.material_sent && (
+                                                               <button 
+                                                                   onClick={(e) => { 
+                                                                     e.stopPropagation(); 
+                                                                     handleDeleteMaterialFile(item.projectId || item.id, item.station, idx); 
+                                                                   }}
+                                                                   style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', opacity: 0.7 }}
+                                                                   onMouseOver={(e) => e.currentTarget.style.opacity = 1}
+                                                                   onMouseOut={(e) => e.currentTarget.style.opacity = 0.7}
+                                                                >
+                                                                   <Trash2 size={14} />
+                                                                </button>
+                                                            )}
+                                                         </div>
+                                                      );
                                                   })}
                                                </div>
                                            </div>
@@ -1520,7 +1551,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                           opacity: item.material_sent ? 1 : 0.6
                                        }}
                                     >
-                                       <Download size={14} /> 素材一括ダウンロード
+                                       <Download size={14} /> 素材一括DL
                                     </button>
                                   )
                                 )}
@@ -1636,8 +1667,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                                   cursor: (item.has_rewrite && item.rewrite_deadline && !item.rewrite_sent) ? 'pointer' : 'not-allowed', 
                                                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' 
                                                 }}
-                                             >
-                                                <Check size={12} /> {item.rewrite_sent ? '送信済' : '送信'}
+                                              >
+                                                 <Check size={12} /> {item.rewrite_sent ? '送信済' : '送信'}
                                              </button>
                                           </div>
                                        </div>
@@ -1695,8 +1726,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
              </div>
           </PageView>
         );
-
-      case 'excel':
+        case 'excel':
         const filteredData = [
            { station: 'CX', date: '2026/05/10', sponsor: 'サントリー', name: '春の感謝祭パブ', status: '素材待ち', material: '未搬入', note: 'G帯指定' },
            { station: 'NTV', date: '2026/05/12', sponsor: 'トヨタ', name: '新型SUV発表', status: '進行中', material: '済', note: '-' },
@@ -2024,7 +2054,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                        <div style={{ flex: '1.8', minWidth: '200px' }}>案件名</div>
                        <div style={{ flex: '1.5', minWidth: '180px' }}>依頼期間</div>
                        <div style={{ flex: '1', minWidth: '120px' }}>素材搬入開始日</div>
-                       <div style={{ width: '24px' }}></div>
+                        <div style={{ flex: '0.8', minWidth: '80px', textAlign: 'center' }}>ステータス</div>
+                        <div style={{ width: '24px' }}></div>
                     </div>
                     {projects.length === 0 ? (
                        <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', backgroundColor: 'white', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>未対応の依頼はありません。</div>
@@ -2034,7 +2065,52 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                           <div style={{ flex: '1.8', minWidth: '200px' }}><div style={{ fontSize: '1.1rem', fontWeight: '950', color: '#3E2723' }}>{p.name}</div></div>
                           <div style={{ flex: '1.5', minWidth: '180px' }}><div style={{ fontSize: '14px', fontWeight: '800', color: '#3E2723' }}>{p.start_date || '---'} 〜 {p.end_date || '---'}</div></div>
                           <div style={{ flex: '1', minWidth: '120px' }}><div style={{ fontSize: '14px', fontWeight: '800', color: '#3E2723' }}>{p.metadata?.material_start_date || p.metadata?.material_deadline || '---'}</div></div>
-                          <ChevronRight style={{ color: '#F1E4C9' }} />
+                           {(() => {
+                           
+                           const stationName = fullProfile?.broadcaster_name || fullProfile?.name || '系列局A';
+                           const projectResponses = broadcasterResponses[p.id] || [];
+                           const stationResp = projectResponses.find(r => r.station_name === stationName);
+                           const respStatus = stationResp?.status || (p.status === 'requesting' ? 'slots' : p.status);
+                           
+                           let displayStatusLabel = '枠出し待ち';
+                           let statusColor = '#3b82f6';
+                           let statusBg = '#eff6ff';
+                           
+                           if (p.status === 'cancelled') {
+                             displayStatusLabel = '取消';
+                             statusColor = '#ef4444';
+                             statusBg = '#fee2e2';
+                           } else if (respStatus === 'registered' || respStatus === 'pending') {
+                             displayStatusLabel = '素材待ち';
+                             statusColor = '#8b5cf6';
+                             statusBg = '#f5f3ff';
+                           } else if (respStatus === 'material_ok' || respStatus === 'rewrites') {
+                             displayStatusLabel = 'リライト待ち';
+                             statusColor = '#f59e0b';
+                             statusBg = '#fffbeb';
+                           } else if (respStatus === 'rewrite_ok') {
+                             displayStatusLabel = '同録待ち';
+                             statusColor = '#10b981';
+                             statusBg = '#ecfdf5';
+                           } else if (p.status === 'completed') {
+                             displayStatusLabel = '完了';
+                             statusColor = '#10b981';
+                             statusBg = '#ecfdf5';
+                           }
+
+                           return (
+                             <div style={{ flex: '0.8', minWidth: '80px', textAlign: 'center' }}>
+                                <span style={{ 
+                                  padding: '4px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: '950',
+                                  backgroundColor: statusBg,
+                                  color: statusColor
+                                }}>
+                                  {displayStatusLabel}
+                                </span>
+                             </div>
+                           );
+                        })()}
+                           <ChevronRight style={{ color: '#F1E4C9' }} />
                        </div>
                     ))}
                  </div>
@@ -2058,10 +2134,55 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                           <FormItem label="案件名" value={selectedRequest.name} />
                           <FormItem label="パブ種別" value={Array.isArray(selectedRequest.metadata?.pub_types) ? selectedRequest.metadata.pub_types.join(', ') : (selectedRequest.metadata?.pub_types || '---')} />
                        </div>
-                       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1.2fr', gap: '24px', borderTop: '1px dashed #F1E4C9', paddingTop: '20px' }}>
+                       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1.2fr 0.8fr', gap: '24px', borderTop: '1px dashed #F1E4C9', paddingTop: '20px' }}>
                           <FormItem label="依頼期間" value={`${selectedRequest.start_date || '---'} 〜 ${selectedRequest.end_date || '---'}`} />
                           <FormItem label="依頼ゾーン" value={`${selectedRequest.metadata?.start_hour || '05'}:00 〜 ${selectedRequest.metadata?.end_hour || '24'}:00`} />
                           <FormItem label="素材搬入開始日" value={selectedRequest.metadata?.material_start_date || selectedRequest.metadata?.material_deadline || '未設定'} />
+                           {(() => {
+                              
+                           const stationName = fullProfile?.broadcaster_name || fullProfile?.name || '系列局A';
+                           const projectResponses = broadcasterResponses[selectedRequest.id] || [];
+                           const stationResp = projectResponses.find(r => r.station_name === stationName);
+                           const respStatus = stationResp?.status || (selectedRequest.status === 'requesting' ? 'slots' : selectedRequest.status);
+                           
+                           let displayStatusLabel = '枠出し待ち';
+                           let statusColor = '#3b82f6';
+                           let statusBg = '#eff6ff';
+                           
+                           if (selectedRequest.status === 'cancelled') {
+                             displayStatusLabel = '取消';
+                             statusColor = '#ef4444';
+                             statusBg = '#fee2e2';
+                           } else if (respStatus === 'registered' || respStatus === 'pending') {
+                             displayStatusLabel = '素材待ち';
+                             statusColor = '#8b5cf6';
+                             statusBg = '#f5f3ff';
+                           } else if (respStatus === 'material_ok' || respStatus === 'rewrites') {
+                             displayStatusLabel = 'リライト待ち';
+                             statusColor = '#f59e0b';
+                             statusBg = '#fffbeb';
+                           } else if (respStatus === 'rewrite_ok') {
+                             displayStatusLabel = '同録待ち';
+                             statusColor = '#10b981';
+                             statusBg = '#ecfdf5';
+                           } else if (selectedRequest.status === 'completed') {
+                             displayStatusLabel = '完了';
+                             statusColor = '#10b981';
+                             statusBg = '#ecfdf5';
+                           }
+
+                              return (
+                                <FormItem label="ステータス" value={
+                                   <span style={{ 
+                                     padding: '4px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: '950',
+                                     backgroundColor: statusBg,
+                                     color: statusColor
+                                   }}>
+                                     {displayStatusLabel}
+                                   </span>
+                                } />
+                              );
+                           })()}
                        </div>
                     </div>
                  </div>
