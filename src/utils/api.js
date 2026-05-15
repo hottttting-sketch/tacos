@@ -667,11 +667,11 @@ export const api = {
   },
   uploadMaterialFile: async (file) => {
     // ファイル名から不要な記号を除去し、アンダースコアで繋ぐ
-    const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const fileName = `mat_${Date.now()}_${safeName}`;
+    const rawFileName = `mat_${Date.now()}_${file.name}`;
+    const fileName = rawFileName.replace(/[^a-zA-Z0-9.-]/g, '_');
     
     // Try materials bucket first
-    const { data, error } = await supabase.storage.from('materials').upload(fileName, file);
+    const { data, error } = await supabase.storage.from('materials').upload(fileName, file, { cacheControl: '0' });
     if (!error) return data.path;
     
     console.warn('[API] uploadMaterialFile: materials bucket failed:', error.message);
@@ -693,19 +693,10 @@ export const api = {
       console.warn('[API] Bucket creation failed (permission denied or already exists):', createErr.message);
     }
     
-    // Fallback 3: Save file info locally (simulation mode)
-    console.warn('[API] All storage methods failed. Using local simulation mode for:', file.name);
-    const localPath = `local_${fileName}`;
-    const localMaterials = JSON.parse(localStorage.getItem('tabasco_uploaded_materials') || '[]');
-    localMaterials.push({
-      path: localPath,
-      originalName: file.name,
-      size: file.size,
-      type: file.type,
-      uploadedAt: new Date().toISOString()
-    });
-    localStorage.setItem('tabasco_uploaded_materials', JSON.stringify(localMaterials));
-    return localPath;
+    // Fallback 3: Error
+    const errMsg = attError?.message || '不明なエラー';
+    console.error('[API] All storage methods failed for material:', file.name, errMsg);
+    throw new Error(`素材のアップロードに失敗しました。詳細: ${errMsg}`);
   },
   getMaterialUrl: async (path) => {
     if (!path) return null;
@@ -717,16 +708,20 @@ export const api = {
     }
 
     try {
-      // Try download first for better reliability with private buckets
+      console.log(`[API] getMaterialUrl: Attempting download from materials bucket. Path: ${path}`);
       const { data, error } = await supabase.storage.from('materials').download(path);
-      if (!error && data) return URL.createObjectURL(data);
+      if (!error && data) {
+        console.log(`[API] getMaterialUrl: Download success. Blob size: ${data.size}, type: ${data.type}`);
+        return URL.createObjectURL(data);
+      }
+      if (error) console.warn(`[API] getMaterialUrl: materials download failed:`, error.message);
       
       // Fallback to attachments
       const { data: dataAtt, error: errorAtt } = await supabase.storage.from('attachments').download(path);
       if (!errorAtt && dataAtt) return URL.createObjectURL(dataAtt);
       
-      // Public URL as last resort
-      return supabase.storage.from('materials').getPublicUrl(path).data.publicUrl;
+      console.error('[API] getMaterialUrl: Failed to get download URL for:', path);
+      return null;
     } catch (e) {
       return null;
     }
@@ -974,20 +969,35 @@ export const api = {
     return { url: publicUrl, name: file.name };
   },
   uploadRecordingFile: async (projectId, stationName, file) => {
-    const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const fileName = `rec_${projectId}_${stationName}_${Date.now()}_${safeName}`;
-    const { data, error } = await supabase.storage.from('recordings').upload(fileName, file);
-    
+    const rawFileName = `rec_${projectId}_${stationName}_${Date.now()}_${file.name}`;
+    const fileName = rawFileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+    // Try recordings bucket first
+    const { data, error } = await supabase.storage.from('recordings').upload(fileName, file, { cacheControl: '0' });
     if (!error) return data.path;
     
-    // Fallback to attachments if recordings bucket doesn't exist
-    console.warn('[API] uploadRecordingFile: recordings bucket failed, trying attachments...', error.message);
+    console.warn('[API] uploadRecordingFile: recordings bucket failed:', error.message);
+    
+    // Fallback 1: attachments bucket
     const { data: attData, error: attError } = await supabase.storage.from('attachments').upload(fileName, file);
     if (!attError) return attData.path;
     
-    // Fallback: local simulation
-    console.warn('[API] All storage methods failed for recording. Using local simulation.');
-    return `local_${fileName}`;
+    console.warn('[API] uploadRecordingFile: attachments bucket failed:', attError.message);
+    
+    // Fallback 2: Try to create the recordings bucket, then upload
+    try {
+      console.log('[API] Attempting to create recordings bucket...');
+      await supabase.storage.createBucket('recordings', { public: true });
+      const { data: retryData, error: retryError } = await supabase.storage.from('recordings').upload(fileName, file);
+      if (!retryError) return retryData.path;
+      console.warn('[API] Upload after recordings bucket creation failed:', retryError.message);
+    } catch (createErr) {
+      console.warn('[API] Recordings bucket creation failed:', createErr.message);
+    }
+    
+    // Fallback 3: Error
+    const errMsg = attError?.message || '不明なエラー';
+    console.error('[API] All storage methods failed for recording:', file.name, errMsg);
+    throw new Error(`同録のアップロードに失敗しました。詳細: ${errMsg}`);
   },
   getRecordingUrl: async (path) => {
     if (!path) return null;
@@ -1006,26 +1016,43 @@ export const api = {
       const { data: dataAtt, error: errorAtt } = await supabase.storage.from('attachments').download(path);
       if (!errorAtt && dataAtt) return URL.createObjectURL(dataAtt);
       
-      return supabase.storage.from('recordings').getPublicUrl(path).data.publicUrl;
+      console.error('[API] getRecordingUrl: Failed to get download URL for:', path);
+      return null;
     } catch (e) {
       return null;
     }
   },
   uploadRewriteFile: async (projectId, stationName, file, type = 'original') => {
     const prefix = type === 'original' ? 'rew' : 'rev';
-    const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const fileName = `${prefix}_${projectId}_${stationName}_${Date.now()}_${safeName}`;
-    const { data, error } = await supabase.storage.from('rewrites').upload(fileName, file);
-    
+    const rawFileName = `${prefix}_${projectId}_${stationName}_${Date.now()}_${file.name}`;
+    const fileName = rawFileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+    // Try rewrites bucket first
+    const { data, error } = await supabase.storage.from('rewrites').upload(fileName, file, { cacheControl: '0' });
     if (!error) return data.path;
     
-    console.warn('[API] uploadRewriteFile: rewrites bucket failed, trying attachments...', error.message);
+    console.warn('[API] uploadRewriteFile: rewrites bucket failed:', error.message);
+    
+    // Fallback 1: attachments bucket
     const { data: attData, error: attError } = await supabase.storage.from('attachments').upload(fileName, file);
     if (!attError) return attData.path;
     
-    // Fallback: local simulation
-    console.warn('[API] All storage methods failed for rewrite. Using local simulation.');
-    return `local_${fileName}`;
+    console.warn('[API] uploadRewriteFile: attachments bucket failed:', attError.message);
+    
+    // Fallback 2: Try to create the rewrites bucket, then upload
+    try {
+      console.log('[API] Attempting to create rewrites bucket...');
+      await supabase.storage.createBucket('rewrites', { public: true });
+      const { data: retryData, error: retryError } = await supabase.storage.from('rewrites').upload(fileName, file);
+      if (!retryError) return retryData.path;
+      console.warn('[API] Upload after rewrites bucket creation failed:', retryError.message);
+    } catch (createErr) {
+      console.warn('[API] Rewrites bucket creation failed:', createErr.message);
+    }
+    
+    // Fallback 3: Error
+    const errMsg = attError?.message || '不明なエラー';
+    console.error('[API] All storage methods failed for rewrite file:', file.name, errMsg);
+    throw new Error(`リライト原稿のアップロードに失敗しました。詳細: ${errMsg}`);
   },
   getRewriteUrl: async (path) => {
     if (!path) return null;
@@ -1038,14 +1065,21 @@ export const api = {
     }
 
     try {
+      console.log(`[API] getRewriteUrl: Attempting download from rewrites bucket. Path: ${path}`);
       const { data, error } = await supabase.storage.from('rewrites').download(path);
-      if (!error && data) return URL.createObjectURL(data);
+      if (!error && data) {
+        console.log(`[API] getRewriteUrl: Download success. Blob size: ${data.size}, type: ${data.type}`);
+        return URL.createObjectURL(data);
+      }
+      if (error) console.warn(`[API] getRewriteUrl: rewrites download failed:`, error.message);
       
       const { data: dataAtt, error: errorAtt } = await supabase.storage.from('attachments').download(path);
       if (!errorAtt && dataAtt) return URL.createObjectURL(dataAtt);
       
-      return supabase.storage.from('rewrites').getPublicUrl(path).data.publicUrl;
+      console.error('[API] getRewriteUrl: Failed to get download URL for:', path);
+      return null;
     } catch (e) {
+      console.error('[API] getRewriteUrl exception:', e);
       return null;
     }
   },

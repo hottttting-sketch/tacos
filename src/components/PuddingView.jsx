@@ -4,7 +4,7 @@ import {
   Cloud, Sun, Zap, Search, Plus, Clock, History, Inbox, 
   Layout, Table, Calendar, Link, Settings, Monitor, 
   Building, DollarSign, FileText, List, Sliders, MessageSquare, Save, Download, Upload,
-  Mic, Play, Volume2, Users, Shield, Trash2, Mail, Edit, Check, ChevronRight, Copy
+  Mic, Play, Volume2, Users, Shield, Trash2, Mail, Edit, Check, ChevronRight, Copy, EyeOff
 } from 'lucide-react';
 import ChatView from './ChatView';
 import ManualView from './ManualView';
@@ -960,6 +960,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
           status: current.status, // ステータスを維持
           has_recording: true,
           recording_path: path,
+          recording_filename: file.name,
           recording_uploaded_at: new Date().toISOString()
         });
         
@@ -989,6 +990,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const resp = await api.getStationResponses(projectId);
       const current = resp.find(r => r.station_name === stationName) || {};
       const path = current.response_data?.recording_path;
+      const originalName = current.response_data?.recording_filename;
       
       if (!path) {
         alert('同録ファイルが見つかりません。');
@@ -999,13 +1001,29 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       if (url) {
         const a = document.createElement('a');
         a.href = url;
-        const fileName = path.split('/').pop();
+        // オリジナル名があればそれを、なければパスから推測（プレフィックスを除去）
+        const fileName = originalName || path.split('/').pop().replace(/^rec_.*?_\d+_/, '');
         a.download = fileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+        alert(`${stationName} の同録ファイルをダウンロードしました。`);
         // ブラウザがダウンロードを開始する時間を確保してからURLを開放
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+        
+        // ダウンロード済みフラグを保存（代理店側での管理用）
+        await api.saveStationResponse(projectId, stationName, {
+          ...(current.response_data || {}),
+          recording_downloaded: true
+        });
+        
+        // 案件個別表示中の場合はレスポンス情報を再取得してUIを更新
+        if (selectedBoardProject && (selectedBoardProject.id === projectId)) {
+          const res = await api.getStationResponses(projectId);
+          setSelectedProjectResponses(res || []);
+        }
+
+        fetchProjects();
       }
     } catch (err) {
       console.error('Failed to download recording:', err);
@@ -1301,9 +1319,92 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       case 'dashboard':
         return renderDashboard();
 
-      case 'new-request':
+            case 'new-request': {
         return (
-                      <PageView title="ユーザー・アカウント管理" desc="システム利用権限と業務範囲を設定します。" icon={Users} color="#1e293b">
+          <PageView title="新規案件打診" desc="新しい案件情報を入力して放送局へ打診します。" icon={Plus} color="#059669">
+             <div style={{ backgroundColor: 'white', padding: '48px', borderRadius: '32px', border: '1.5px solid #F1E4C9', boxShadow: '0 20px 50px rgba(62,39,35,0.05)' }}>
+                <div style={{ display: 'grid', gap: '28px' }}>
+                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                      <div className="input-group">
+                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>スポンサー</label>
+                         <input type="text" value={sponsorName} onChange={(e) => setSponsorName(e.target.value)} placeholder="例：サントリー株式会社" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', outline: 'none' }} />
+                      </div>
+                      <div className="input-group">
+                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>BA (担当者)</label>
+                         <select 
+                           value={selectedBa}
+                           onChange={(e) => setSelectedBa(e.target.value)}
+                           style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', outline: 'none' }}
+                         >
+                            <option value="">BAを選択してください</option>
+                            {(maBaMappings['本社'] || []).map(baOrg => <option key={baOrg} value={baOrg}>{baOrg}</option>)}
+                         </select>
+                      </div>
+                   </div>
+                   <div className="input-group">
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>案件名</label>
+                      <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="例：春の新商品キャンペーン" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '800', outline: 'none' }} />
+                   </div>
+                   <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px' }}>
+                       <div className="input-group">
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>依頼期間</label>
+                          <div onClick={() => setActiveModal('period')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                             <Calendar size={18} color="#8B4513" />
+                             <span style={{ color: requestDateRange.start ? '#3E2723' : '#94a3b8' }}>
+                                {requestDateRange.start && requestDateRange.end ? `${requestDateRange.start} 〜 ${requestDateRange.end}` : '期間を選択してください'}
+                             </span>
+                          </div>
+                       </div>
+                       <div className="input-group">
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>依頼ゾーン</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                             <div onClick={() => setActiveModal('zone')} style={{ flex: 1, padding: '14px 10px', borderRadius: '16px', border: '2px solid #F1E4C9', textAlign: 'center', fontWeight: '950', cursor: 'pointer', backgroundColor: 'white' }}>{startHour}:00</div>
+                             <span>〜</span>
+                             <div onClick={() => setActiveModal('zone')} style={{ flex: 1, padding: '14px 10px', borderRadius: '16px', border: '2px solid #F1E4C9', textAlign: 'center', fontWeight: '950', cursor: 'pointer', backgroundColor: 'white' }}>{endHour}:00</div>
+                          </div>
+                       </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                       <div className="input-group">
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '12px' }}>パブ種別</label>
+                          <div onClick={() => setActiveModal('pubType')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', flexWrap: 'wrap', gap: '8px', minHeight: '56px' }}>
+                             {selectedPubTypes.map(type => <span key={type} style={{ padding: '4px 12px', borderRadius: '8px', backgroundColor: '#FFFBE6', color: '#8B4513', fontSize: '12px', fontWeight: '900', border: '1px solid #FFD93D' }}>{type}</span>)}
+                             {selectedPubTypes.length === 0 && <span style={{ color: '#94a3b8' }}>選択してください</span>}
+                          </div>
+                       </div>
+                       <div className="input-group">
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '12px' }}>素材搬入開始日</label>
+                          <input type="date" value={materialDeadline} onChange={(e) => setMaterialDeadline(e.target.value)} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', outline: 'none' }} />
+                       </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                       <div className="input-group">
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>リライト共有者</label>
+                          <div onClick={() => setActiveModal('reviewer-rewrite')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                             <Users size={18} /> <span>{rewriteReviewer || '担当者を選択'}</span>
+                          </div>
+                       </div>
+                       <div className="input-group">
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>同録共有者</label>
+                          <div onClick={() => setActiveModal('reviewer-recording')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                             <Users size={18} /> <span>{recordingReviewer || '担当者を選択'}</span>
+                          </div>
+                       </div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', padding: '32px 0 0 0', borderTop: '1.5px solid #F1E4C9', marginTop: '16px' }}>
+                       <button onClick={() => { setProjectName(''); setSponsorName(''); setActiveTab('dashboard'); }} style={{ padding: '14px 40px', borderRadius: '16px', fontWeight: '950', backgroundColor: '#f8fafc', color: '#64748b', border: '1.5px solid #e2e8f0', cursor: 'pointer' }}>キャンセル</button>
+                       <button style={{ padding: '14px 40px', borderRadius: '16px', fontWeight: '950', backgroundColor: '#FFFBE6', color: '#8B4513', border: '2.5px solid #FFD93D', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }} onClick={() => setActiveTab('select-stations')}><Monitor size={18} /> 依頼局を選択する</button>
+                       <button style={{ padding: '14px 64px', borderRadius: '16px', fontWeight: '950', backgroundColor: isSubmitting ? '#94a3b8' : '#3E2723', color: 'white', border: 'none', cursor: isSubmitting ? 'wait' : 'pointer', boxShadow: '0 8px 25px rgba(62,39,35,0.2)' }} onClick={handleCreateProject} disabled={isSubmitting}>{isSubmitting ? '送信中...' : '打診を開始する'}</button>
+                    </div>
+                 </div>
+              </div>
+          </PageView>
+        );
+      }
+
+      case 'users': {
+        return (
+          <PageView title="ユーザー・アカウント管理" desc="システム利用権限と業務範囲を設定します。" icon={Users} color="#1e293b">
              <div style={{ display: 'grid', gap: '24px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                    <div style={{ display: 'flex', gap: '8px', padding: '6px', backgroundColor: '#f1f5f9', borderRadius: '16px' }}>
@@ -1341,8 +1442,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
              </div>
           </PageView>
         );
+      }
 
-      case 'board':
+case 'board': {
         if (role === 'agency' && !selectedBoardProject) {
            return (
               <PageView title="案件ボード" desc="進行を確認したい案件を選択してください。" icon={Layout} color="#f59e0b">
@@ -1397,6 +1499,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                  revised_sent: resp?.response_data?.revised_sent || false,
                  revised_filename: resp?.response_data?.revised_filename || null,
                  has_recording: resp?.response_data?.has_recording || false,
+                 recording_filename: resp?.response_data?.recording_filename || null,
+                 recording_downloaded: resp?.response_data?.recording_downloaded || false,
                  has_rewrite: resp?.response_data?.has_rewrite || false,
                  rewrite_sent: resp?.response_data?.rewrite_sent || false,
                  rewrite_filename: resp?.response_data?.rewrite_filename || null,
@@ -1432,6 +1536,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                  revised_sent: response.revised_sent || false,
                  revised_filename: response.revised_filename || null,
                  has_recording: response.has_recording || false,
+                 recording_filename: response.recording_filename || null,
+                 recording_downloaded: response.recording_downloaded || false,
                  has_rewrite: response.has_rewrite || false,
                  rewrite_sent: response.rewrite_sent || false,
                  rewrite_filename: response.rewrite_filename || null,
@@ -1454,24 +1560,60 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: col.color }} />
                         {col.title}
                         <span style={{ backgroundColor: '#e2e8f0', padding: '2px 8px', borderRadius: '10px', fontSize: '10px' }}>{col.items.length}</span>
-                        {col.id === 'recordings' && col.items.length > 0 && (
-                          <button 
-                             onClick={(e) => { 
-                               e.stopPropagation(); 
-                               if (role === 'agency') {
-                                 alert('選択されたすべての同録データをダウンロードします。');
-                                 col.items.forEach(item => {
-                                   if (item.has_recording) handleRecordingDownload(item.projectId || item.id, item.station);
-                                 });
-                               } else {
-                                 alert('同録データの一括アップロードを開始します。');
-                               }
-                             }} 
-                             style={{ marginLeft: 'auto', padding: '4px 12px', borderRadius: '8px', backgroundColor: 'white', color: '#10b981', border: '1.5px solid #10b981', fontSize: '10px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                          >
-                             {role === 'agency' ? <Download size={12} /> : <Upload size={12} />}
-                             {role === 'agency' ? '一括DL' : '一括UP'}
-                          </button>
+                        {col.id === 'recordings' && (
+                          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                             {role === 'agency' && (
+                                <button 
+                                   onClick={async (e) => { 
+                                     e.stopPropagation(); 
+                                     if (confirm('非表示にしたすべての案件を再表示しますか？')) {
+                                        try {
+                                          const responses = await api.getStationResponses(selectedBoardProject.id);
+                                          const hiddenItems = responses.filter(r => r.status === 'completed');
+                                          if (hiddenItems.length === 0) {
+                                            alert('非表示の案件はありません。');
+                                            return;
+                                          }
+                                          for (const r of hiddenItems) {
+                                            await api.saveStationResponse(selectedBoardProject.id, r.station_name, {
+                                              ...(r.response_data || {}),
+                                              status: 'recordings'
+                                            });
+                                          }
+                                          alert('案件を再表示しました。');
+                                          fetchProjects();
+                                          const updatedRes = await api.getStationResponses(selectedBoardProject.id);
+                                          setSelectedProjectResponses(updatedRes || []);
+                                        } catch (err) {
+                                          console.error('Failed to restore items:', err);
+                                        }
+                                     }
+                                   }} 
+                                   style={{ padding: '4px 12px', borderRadius: '8px', backgroundColor: 'white', color: '#64748b', border: '1.5px solid #e2e8f0', fontSize: '10px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                >
+                                   <Sliders size={12} /> 一括再表示
+                                </button>
+                             )}
+                             {col.items.length > 0 && (
+                               <button 
+                                  onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    if (role === 'agency') {
+                                      alert('選択されたすべての同録データをダウンロードします。');
+                                      col.items.forEach(item => {
+                                        if (item.has_recording) handleRecordingDownload(item.projectId || item.id, item.station);
+                                      });
+                                    } else {
+                                      alert('同録データの一括アップロードを開始します。');
+                                    }
+                                  }} 
+                                  style={{ padding: '4px 12px', borderRadius: '8px', backgroundColor: 'white', color: '#10b981', border: '1.5px solid #10b981', fontSize: '10px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                               >
+                                  {role === 'agency' ? <Download size={12} /> : <Upload size={12} />}
+                                  {role === 'agency' ? '一括DL' : '一括UP'}
+                               </button>
+                             )}
+                          </div>
                         )}
                       </h3>
                       {col.items.map(item => (
@@ -1530,31 +1672,37 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                            </div>
                                         )}
                                         <div style={{ display: 'flex', gap: '8px' }}>
-                                        <button onClick={(e) => { e.stopPropagation(); handleAgencyMaterialUpload(item.projectId || item.id, item.station); }} style={{ flex: '1', padding: '10px', borderRadius: '12px', backgroundColor: '#f59e0b', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                                          <Upload size={12} /> 素材UP
-                                       </button>
-                                       <button disabled={!item.has_material || item.material_sent} onClick={(e) => { e.stopPropagation(); handleMaterialUpload(item.projectId || item.id, item.station); }} style={{ flex: '1', padding: '10px', borderRadius: '12px', backgroundColor: (item.has_material && !item.material_sent) ? '#3E2723' : '#94a3b8', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: (item.has_material && !item.material_sent) ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                                          <Check size={12} /> {item.material_sent ? '送信済' : '送信'}
-                                       </button>
-                                     </div>
+                                            <button onClick={(e) => { e.stopPropagation(); handleMaterialUpload(item.projectId || item.id, item.station); }} style={{ flex: '1', padding: '10px', borderRadius: '12px', backgroundColor: '#3b82f6', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                                               <Upload size={12} /> 素材UP
+                                            </button>
+                                            <button 
+                                              disabled={!item.has_material || item.material_sent}
+                                              onClick={async (e) => { 
+                                                e.stopPropagation(); 
+                                                const success = await api.updateProject(item.projectId || item.id, { 
+                                                  metadata: { [`response_${item.station}`]: { ...(selectedBoardProject.metadata?.[`response_${item.station}`] || {}), material_sent: true, status: 'registered' } }
+                                                }); 
+                                                if (success) {
+                                                  alert('素材の送信が完了しました。');
+                                                  fetchProjects();
+                                                }
+                                              }} 
+                                              style={{ flex: '1', padding: '10px', borderRadius: '12px', backgroundColor: (item.has_material && !item.material_sent) ? '#3E2723' : '#94a3b8', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: (item.has_material && !item.material_sent) ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                                            >
+                                               <Check size={12} /> 送信
+                                            </button>
+                                         </div>
                                      </div>
                                    ) : (
-                                    <button 
-                                       disabled={!item.material_sent}
-                                       onClick={(e) => { e.stopPropagation(); handleMaterialDownload(item.projectId || item.id, item.station); }} 
-                                       style={{ 
-                                          width: '100%', padding: '10px', borderRadius: '12px', 
-                                          backgroundColor: item.material_sent ? '#3b82f6' : '#94a3b8', 
-                                          color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', 
-                                          cursor: item.material_sent ? 'pointer' : 'not-allowed', 
-                                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                                          opacity: item.material_sent ? 1 : 0.6
-                                       }}
-                                    >
-                                       <Download size={14} /> 素材一括DL
-                                    </button>
-                                  )
-                                )}
+                                     <button 
+                                        disabled={!item.has_material}
+                                        onClick={(e) => { e.stopPropagation(); handleMaterialDownload(item.projectId || item.id, item.station); }} 
+                                        style={{ width: '100%', padding: '10px', borderRadius: '12px', backgroundColor: item.has_material ? '#3b82f6' : '#f8fafc', color: item.has_material ? 'white' : '#cbd5e1', border: item.has_material ? 'none' : '1.5px solid #e2e8f0', fontSize: '11px', fontWeight: '950', cursor: item.has_material ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                     >
+                                        <Download size={14} /> 素材DL
+                                     </button>
+                                   )
+                                 )}
                                {col.id === 'rewrites' && (
                                   role === 'agency' ? (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1571,7 +1719,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' 
                                           }}
                                         >
-                                           <Download size={14} /> リライトDL
+                                           <Download size={14} /> リライト・修正稿DL
                                         </button>
                                         <div style={{ display: 'flex', gap: '8px' }}>
                                            <button onClick={(e) => { e.stopPropagation(); handleRevisedUpload(item.projectId || item.id, item.station); }} style={{ flex: '1', padding: '10px', borderRadius: '12px', backgroundColor: '#f59e0b', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
@@ -1596,7 +1744,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                         </button>
                                     </div>
                                   ) : (
-                                    <>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                        <div style={{ fontSize: '10px', color: '#ef4444', fontWeight: '950', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1615,7 +1763,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                        </div>
                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                           <button onClick={(e) => { e.stopPropagation(); handleRewriteUpload(item.projectId || item.id, item.station); }} style={{ width: '100%', padding: '10px', borderRadius: '12px', backgroundColor: '#f59e0b', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                             <Edit size={14} /> リライト原稿UP
+                                             <Edit size={14} /> リライト・修正稿UP
                                           </button>
                                           <button 
                                               onClick={(e) => { e.stopPropagation(); handleRevisedDownload(item.projectId || item.id, item.station); }} 
@@ -1629,14 +1777,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                            >
                                               <Download size={14} /> 修正稿DL
                                            </button>
-                                           {item.revised_sent && (
-                                              <button 
-                                                onClick={(e) => { e.stopPropagation(); if(confirm('修正稿を確認しました。同録待ちへ移動しますか？')) { api.saveStationResponse(item.projectId || item.id, item.station, { status: 'rewrite_ok' }); fetchProjects(); } }}
-                                                style={{ width: '100%', marginTop: '8px', padding: '10px', borderRadius: '12px', backgroundColor: '#10b981', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
-                                              >
-                                                <Check size={14} /> 同録待ちへ移動
-                                              </button>
-                                           )}
                                           {item.has_rewrite && item.rewrite_filename && (
                                              <div style={{ fontSize: '9px', color: '#059669', backgroundColor: '#ecfdf5', padding: '6px 8px', borderRadius: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', border: '1px solid #d1fae5' }}>
                                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
@@ -1653,71 +1793,116 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                                  </div>
                                              </div>
                                           )}
-                                          <div style={{ display: 'flex', gap: '8px' }}>
-                                             <button onClick={(e) => { e.stopPropagation(); setSelectedRequest(item); setActiveModal('rewrite-deadline'); }} style={{ flex: '1', padding: '10px', borderRadius: '12px', backgroundColor: 'white', color: '#ef4444', border: '1.5px solid #ef4444', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                                                <Clock size={12} /> 修正〆切
-                                             </button>
-                                             <button 
-                                                disabled={!item.has_rewrite || !item.rewrite_deadline || item.rewrite_sent}
-                                                onClick={(e) => { e.stopPropagation(); handleRewriteSend(item.projectId || item.id, item.station); }} 
-                                                style={{ 
-                                                  flex: '1', padding: '10px', borderRadius: '12px', 
-                                                  backgroundColor: (item.has_rewrite && item.rewrite_deadline && !item.rewrite_sent) ? '#3E2723' : '#94a3b8', 
-                                                  color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', 
-                                                  cursor: (item.has_rewrite && item.rewrite_deadline && !item.rewrite_sent) ? 'pointer' : 'not-allowed', 
-                                                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' 
-                                                }}
-                                              >
-                                                 <Check size={12} /> {item.rewrite_sent ? '送信済' : '送信'}
-                                             </button>
-                                          </div>
+                                          <button 
+                                            disabled={!item.has_rewrite}
+                                            onClick={async (e) => { 
+                                              e.stopPropagation(); 
+                                              const success = await api.saveStationResponse(item.projectId || item.id, item.station, {
+                                                ...(broadcasterResponses[item.projectId || item.id]?.find(r => r.station_name === item.station)?.response_data || {}),
+                                                status: 'rewrite_ok'
+                                              });
+                                              if (success) {
+                                                alert('リライト・修正稿の送信が完了しました。');
+                                                fetchProjects();
+                                              }
+                                            }} 
+                                            style={{ 
+                                              width: '100%', padding: '10px', borderRadius: '12px', 
+                                              backgroundColor: item.has_rewrite ? '#3E2723' : '#94a3b8', 
+                                              color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', 
+                                              cursor: item.has_rewrite ? 'pointer' : 'not-allowed', 
+                                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' 
+                                            }}
+                                          >
+                                             <Check size={14} /> 送信
+                                          </button>
                                        </div>
-                                    </>
-                                  )
-                                )}
-                               {col.id === 'recordings' && (
-                                  role === 'agency' ? (
-                                    <button 
-                                      disabled={!item.has_recording}
-                                      onClick={(e) => { e.stopPropagation(); handleRecordingDownload(item.projectId || item.id, item.station); }} 
-                                      style={{ 
-                                         width: '100%', padding: '10px', borderRadius: '12px', 
-                                         backgroundColor: item.has_recording ? '#3b82f6' : '#f8fafc', 
-                                         color: item.has_recording ? 'white' : '#cbd5e1', 
-                                         border: item.has_recording ? 'none' : '1.5px solid #e2e8f0', 
-                                         fontSize: '11px', fontWeight: '950', 
-                                         cursor: item.has_recording ? 'pointer' : 'not-allowed', 
-                                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' 
-                                      }}
-                                    >
-                                       <Download size={14} /> 同録DL
-                                    </button>
-                                  ) : (
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                       <button onClick={(e) => { e.stopPropagation(); handleRecordingUpload(item.projectId || item.id, item.station); }} style={{ flex: '1', padding: '10px', borderRadius: '12px', backgroundColor: '#10b981', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                                          <Mic size={12} /> 同録UP
-                                       </button>
-                                       <button 
-                                         disabled={!item.has_recording}
-                                         onClick={(e) => { 
-                                           e.stopPropagation(); 
-                                           alert('同録を送信しました。ステータスを完了に移行します。'); 
-                                           api.updateProject(item.projectId || item.id, { status: 'completed' }); 
-                                           fetchProjects(); 
-                                         }} 
-                                         style={{ 
-                                           flex: '1', padding: '10px', borderRadius: '12px', 
-                                           backgroundColor: item.has_recording ? '#3E2723' : '#94a3b8', 
-                                           color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', 
-                                           cursor: item.has_recording ? 'pointer' : 'not-allowed', 
-                                           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' 
-                                         }}
-                                       >
-                                          <Check size={12} /> 送信
-                                       </button>
                                     </div>
                                   )
-                                )}
+                               )}
+
+                               {col.id === 'recordings' && (
+                                  role === 'agency' ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                       <button 
+                                          disabled={!item.has_recording}
+                                          onClick={(e) => { e.stopPropagation(); handleRecordingDownload(item.projectId || item.id, item.station); }} 
+                                          style={{ 
+                                             width: '100%', padding: '10px', borderRadius: '12px', 
+                                             backgroundColor: item.has_recording ? '#10b981' : '#f8fafc', 
+                                             color: item.has_recording ? 'white' : '#cbd5e1', 
+                                             border: item.has_recording ? 'none' : '1.5px solid #e2e8f0',
+                                             fontSize: '11px', fontWeight: '950', 
+                                             cursor: item.has_recording ? 'pointer' : 'not-allowed', 
+                                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' 
+                                          }}
+                                       >
+                                          <Download size={14} /> 同録DL
+                                       </button>
+                                       <button 
+                                         disabled={!item.recording_downloaded}
+                                         onClick={async (e) => { 
+                                           e.stopPropagation(); 
+                                           if (confirm('この案件を非表示にしますか？')) {
+                                             const success = await api.updateProject(item.projectId || item.id, { status: 'completed' }); 
+                                             if (success) {
+                                               alert('案件を非表示（完了）にしました。');
+                                               fetchProjects();
+                                             }
+                                           }
+                                         }} 
+                                         style={{ 
+                                            width: '100%', padding: '10px', borderRadius: '12px', 
+                                            backgroundColor: item.recording_downloaded ? '#4b5563' : '#f1f5f9', 
+                                            color: item.recording_downloaded ? 'white' : '#94a3b8', 
+                                            border: 'none', fontSize: '11px', fontWeight: '950', 
+                                            cursor: item.recording_downloaded ? 'pointer' : 'not-allowed', 
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' 
+                                         }}
+                                       >
+                                          <EyeOff size={14} /> 非表示
+                                       </button>
+                                    </div>
+                                  ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {item.has_recording && item.recording_filename && (
+                                           <div style={{ fontSize: '9px', color: '#059669', backgroundColor: '#ecfdf5', padding: '6px 8px', borderRadius: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', border: '1px solid #d1fae5' }}>
+                                              ・{item.recording_filename}
+                                           </div>
+                                        )}
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                           <button onClick={(e) => { e.stopPropagation(); handleRecordingUpload(item.projectId || item.id, item.station); }} style={{ flex: '1', padding: '10px', borderRadius: '12px', backgroundColor: '#10b981', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                                              <Mic size={12} /> 同録UP
+                                           </button>
+                                           <button 
+                                             disabled={!item.has_recording}
+                                             onClick={async (e) => { 
+                                               e.stopPropagation(); 
+                                               try {
+                                                 const success = await api.updateProject(item.projectId || item.id, { status: 'completed' }); 
+                                                 if (success) {
+                                                   alert('同録の送信が完了しました。案件を完了として保存しました。');
+                                                   fetchProjects();
+                                                 }
+                                               } catch (err) {
+                                                 console.error('Failed to complete project:', err);
+                                                 alert('送信に失敗しました。');
+                                               }
+                                             }} 
+                                             style={{ 
+                                               flex: '1', padding: '10px', borderRadius: '12px', 
+                                               backgroundColor: item.has_recording ? '#3E2723' : '#94a3b8', 
+                                               color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', 
+                                               cursor: item.has_recording ? 'pointer' : 'not-allowed', 
+                                               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' 
+                                             }}
+                                           >
+                                              <Check size={12} /> 送信
+                                           </button>
+                                        </div>
+                                    </div>
+                                  )
+                               )}
                             </div>
                          </div>
                       ))}
@@ -1726,7 +1911,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
              </div>
           </PageView>
         );
-        case 'excel':
+        }
+      case 'excel': {
         const filteredData = [
            { station: 'CX', date: '2026/05/10', sponsor: 'サントリー', name: '春の感謝祭パブ', status: '素材待ち', material: '未搬入', note: 'G帯指定' },
            { station: 'NTV', date: '2026/05/12', sponsor: 'トヨタ', name: '新型SUV発表', status: '進行中', material: '済', note: '-' },
@@ -1755,7 +1941,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
           </PageView>
         );
 
-      case 'bulk-change-cancel':
+      }
+
+      case 'bulk-change-cancel': {
         return (
           <PageView title="一括変更・取消" desc="複数の案件を選択して一括でステータス変更や取り消しを行います。" icon={Sliders} color="#EF4444">
              <div style={{ display: 'grid', gap: '24px' }}>
@@ -1860,7 +2048,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         );
 
 
-      case 'copy-project':
+      }
+
+      case 'copy-project': {
         if (selectedCopySource) {
           return (
             <PageView 
@@ -2044,7 +2234,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         );
 
 
-      case 'slot-registration':
+      }
+
+      case 'slot-registration': {
         if (!selectedRequest) {
            return (
               <PageView title="枠情報登録" desc="依頼内容を確認し、放送枠情報を登録してください。" icon={Clock} color="#34D399">
@@ -2282,7 +2474,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
            </PageView>
         );
 
-      case 'slot-move-suspended':
+      }
+
+      case 'slot-move-suspended': {
         const slotMoveProjects = projects.filter(p => {
           // 管理者の場合は全件表示、放送局の場合は自局に関連する案件のみ表示
           const stations = p.metadata?.selectedStations || p.selectedStations || [];
@@ -2368,6 +2562,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
           </PageView>
         );
 
+      }
+
       case 'calendar':
         return (
           <PageView title="放送カレンダー" desc="OA予定を管理します。" icon={Calendar} color="#F59E0B">
@@ -2426,7 +2622,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       case 'chat':
         return <ChatView activeChannel={activeChatChannel} />;
 
-      case 'select-stations':
+      case 'select-stations': {
         const networks = ['N系', 'J系', 'CX系', 'EX系', 'TX系', '独U'];
         const prefectures = ['北海道', '青森', '岩手', '宮城', '秋田', '山形', '福島', '茨城', '栃木', '群馬', '埼玉', '千葉', '東京', '神奈川', '新潟', '富山', '石川', '福井', '山梨', '長野', '岐阜', '静岡', '愛知', '三重', '滋賀', '京都', '大阪', '兵庫', '奈良', '和歌山', '鳥取', '島根', '岡山', '広島', '山口', '徳島', '香川', '愛媛', '高知', '福岡', '佐賀', '長崎', '熊本', '大分', '宮崎', '鹿児島', '沖縄'];
         const toggleStation = (pref, net) => {
@@ -2489,7 +2685,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
           </PageView>
         );
 
-      case 'ba-settings':
+      }
+      case 'ba-settings': {
         const agencyOrgs = [...new Set(puddingUsers.filter(u => u.role === 'agency' || u.role === 'admin').map(u => u.org))];
         return (
           <PageView title="BA組織のマッピング" desc="自社組織とBA組織の連携を設定します。" icon={Monitor} color="#3E2723">
@@ -2520,6 +2717,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
           </PageView>
         );
 
+      }
       case 'manual':
         return <ManualView />;
       default:
