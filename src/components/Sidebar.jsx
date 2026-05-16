@@ -115,8 +115,7 @@ const Sidebar = ({ currentApp = 'tacos', role, activeTab, onTabChange, isCollaps
       ]},
       { group: '制作管理', items: [
         { id: 'slot-management-table', label: 'スプシ連携', icon: <Icons.Link />, color: '#e6fcf5' },
-        { id: 'ai-rewrite-settings', label: 'AIリライト設定', icon: <Icons.Settings />, color: '#f8f9fa' },
-        { id: 'ai-narration-settings', label: 'AIナレーション', icon: <Icons.Monitor />, color: '#e7f5ff' },
+        { id: 'ai-rewrite-settings', label: 'AIリライト/ナレ設定', icon: <Icons.Settings />, color: '#f8f9fa' },
       ]},
       { group: '共通', items: [
         { id: 'chat', label: 'チャット', icon: <Icons.Chat />, color: '#e6fcf5' },
@@ -127,14 +126,11 @@ const Sidebar = ({ currentApp = 'tacos', role, activeTab, onTabChange, isCollaps
     const puddingAdminItems = [
       { group: 'システム管理', items: [
         { id: 'admin-dashboard', label: '総合ダッシュボード', icon: <Icons.Dashboard />, color: '#fff9db' },
-        { id: 'stations', label: '放送局管理', icon: <Icons.Monitor />, color: '#e7f5ff' },
         { id: 'users', label: 'ユーザー管理', icon: <Icons.Users />, color: '#e6fcf5' },
         { id: 'ba-settings', label: 'BA管理', icon: <Icons.Link />, color: '#fff0f6' },
         { id: 'url-management', label: '送付URL管理', icon: <Icons.Link />, color: '#fff5cc' },
-        { id: 'billing', label: '請求管理', icon: <Icons.Chart />, color: '#edf2ff' },
       ]},
       { group: 'マスタ管理', items: [
-        { id: 'programs', label: '全放送局番組管理', icon: <Icons.Table />, color: '#f3f0ff' },
         { id: 'slots', label: '全放送局枠管理', icon: <Icons.Clock />, color: '#fff0f6' },
         { id: 'ai-rewrite-settings', label: 'AIリライト設定', icon: <Icons.Settings />, color: '#f8f9fa' },
         { id: 'materials', label: '資料管理', icon: <Icons.Folder />, color: '#fffec7' },

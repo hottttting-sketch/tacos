@@ -4,7 +4,7 @@ import {
   Cloud, Sun, Zap, Search, Plus, Clock, History, Inbox, 
   Layout, Table, Calendar, Link, Settings, Monitor, RefreshCw,
   Building, DollarSign, FileText, List, Sliders, MessageSquare, Save, Download, Upload, Send,
-  Mic, Play, Volume2, Users, Shield, Trash2, Mail, Edit, Check, ChevronRight, Copy, EyeOff
+  Mic, Play, Volume2, Users, Shield, Trash2, Mail, Edit, Check, ChevronRight, Copy, EyeOff, AlertCircle
 } from 'lucide-react';
 import ChatView from './ChatView';
 import ManualView from './ManualView';
@@ -54,6 +54,31 @@ const Modal = ({ title, onClose, children, width = '600px', hideFooter = false }
   </div>
 );
 
+const Toast = ({ message, type, onClose }) => {
+  if (!message) return null;
+  const bgColor = type === 'error' ? '#fee2e2' : '#f0fdf4';
+  const textColor = type === 'error' ? '#991b1b' : '#166534';
+  const Icon = type === 'error' ? Zap : Check;
+
+  return (
+    <div 
+      className="animate-pop"
+      style={{ 
+        position: 'fixed', bottom: '32px', right: '32px', zIndex: 1100, 
+        backgroundColor: 'white', padding: '16px 24px', borderRadius: '16px',
+        boxShadow: '0 10px 30px rgba(0,0,0,0.1)', border: `1.5px solid ${type === 'error' ? '#fecaca' : '#bbf7d0'}`,
+        display: 'flex', alignItems: 'center', gap: '12px'
+      }}
+    >
+      <div style={{ padding: '8px', borderRadius: '10px', backgroundColor: bgColor, color: textColor }}>
+        <Icon size={20} />
+      </div>
+      <div style={{ fontSize: '14px', fontWeight: '950', color: '#3E2723' }}>{message}</div>
+      <button onClick={onClose} style={{ background: 'none', border: 'none', marginLeft: '12px', cursor: 'pointer', color: '#94a3b8' }}>×</button>
+    </div>
+  );
+};
+
 const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, fullProfile, onNavigateToChat }) => {
   const role = rawRole === 'station' ? 'broadcaster' : rawRole;
   const [selectedRequest, setSelectedRequest] = useState(null);
@@ -62,6 +87,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   const [isSyncing, setIsSyncing] = useState(false);
   const [narrationVoice, setNarrationVoice] = useState('female1');
   const [narrationSpeed, setNarrationSpeed] = useState(1.0);
+  const [narrationPitch, setNarrationPitch] = useState(0);
+  const [broadcasterAiModel, setBroadcasterAiModel] = useState('GPT-4o');
   const [isGeneratingNarration, setIsGeneratingNarration] = useState(false);
   const [generatedNarrationFiles, setGeneratedNarrationFiles] = useState([]);
   const [puddingUsers, setPuddingUsers] = useState([
@@ -90,6 +117,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   const [activeChatChannel, setActiveChatChannel] = useState(null);
   const [preRewriteFiles, setPreRewriteFiles] = useState([]);
   const [postRewriteFiles, setPostRewriteFiles] = useState([]);
+  const [aiOriginalFiles, setAiOriginalFiles] = useState([]);
+  const [aiRewriteFiles, setAiRewriteFiles] = useState([]);
   const [selectedStations, setSelectedStations] = useState([]);
   const [sponsorName, setSponsorName] = useState('');
   const [projectName, setProjectName] = useState('');
@@ -105,12 +134,12 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   const [spreadsheetUrl, setSpreadsheetUrl] = useState('');
   const [spreadsheetSlots, setSpreadsheetSlots] = useState([]);
   const [columnMappings, setColumnMappings] = useState([
-    { id: 'section', label: 'セクション', column: 'A', sample: '朝帯' },
-    { id: 'programName', label: '番組名', column: 'B', sample: '朝のニュース' },
-    { id: 'broadcastDate', label: '放送日', column: 'C', sample: '2026/05/20' },
-    { id: 'time', label: '開始終了時間', column: 'D', sample: '08:00 - 08:30' },
-    { id: 'duration', label: '尺', column: 'E', sample: '30s' },
-    { id: 'deadline', label: '素材〆切日', column: 'F', sample: '2026/05/15' },
+    { id: 'section', label: 'セクション', column: 'A' },
+    { id: 'programName', label: '番組名', column: 'B' },
+    { id: 'broadcastDate', label: '放送日（YYYY/MM/DD）', column: 'C' },
+    { id: 'time', label: '開始終了時間（HH:MM-HH:MM ）', column: 'D' },
+    { id: 'duration', label: '尺（SSS）', column: 'E' },
+    { id: 'deadline', label: '素材〆切日（MM/DD）', column: 'F' },
   ]);
 
   const handleAddMapping = () => {
@@ -128,7 +157,27 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   const [selectedProjectResponses, setSelectedProjectResponses] = useState([]);
   const [selectedBulkProjectIds, setSelectedBulkProjectIds] = useState([]);
   const [broadcasterResponses, setBroadcasterResponses] = useState({});
-  const [bulkChangeName, setBulkChangeName] = useState('');
+  const [toast, setToast] = useState({ message: '', type: 'success' });
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast({ message: '', type: 'success' }), 5000);
+  };
+
+  const handleSaveSettings = async () => {
+    try {
+      const success = await api.savePuddingSettings({
+        spreadsheetUrl,
+        columnMappings
+      });
+      if (success) {
+        showToast('設定を保存しました。次回ログイン時も保持されます。');
+      } else {
+        showToast('設定の保存に失敗しました。', 'error');
+      }
+    } catch (e) {
+      showToast('エラーが発生しました: ' + e.message, 'error');
+    }
+  };
   const [bulkChangeDateRange, setBulkChangeDateRange] = useState({ start: '', end: '' });
   const [bulkChangeMaterialDeadline, setBulkChangeMaterialDeadline] = useState('');
   const [copySearchQuery, setCopySearchQuery] = useState('');
@@ -162,12 +211,12 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         const respStatus = stationResp?.status || response.status;
         
         const statusLabel = 
-          p.status === 'cancelled' ? '案件終了' :
+          p.status === 'cancelled' ? '削除済' :
           (response?.broadcaster_hidden === true || response?.agency_hidden === true) ? '非表示' :
-          (respStatus === 'registered' || respStatus === 'pending') ? '素材受領済み' :
-          (respStatus === 'material_ok' || respStatus === 'rewrites') ? '修正稿受領済み' :
-          (respStatus === 'rewrite_ok' || respStatus === 'recordings') ? '完パケ受領済み' :
-          p.status === 'requesting' ? '放送出力済み' : p.status;
+          (respStatus === 'registered' || respStatus === 'pending') ? '素材待ち' :
+          (respStatus === 'material_ok' || respStatus === 'rewrites') ? 'リライト待ち' :
+          (respStatus === 'rewrite_ok' || respStatus === 'recordings') ? '同録待ち' :
+          p.status === 'requesting' ? '枠出し待ち' : p.status;
 
         exportData.push({
           'スポンサー': p.sponsor_name || p.metadata?.sponsor || '未設定',
@@ -217,7 +266,81 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
     setSelectedRequest(null);
     setSelectedBoardProject(null);
     fetchProjects();
+    
+    // Load Pudding Spreadsheet settings
+    const loadSettings = async () => {
+      const saved = await api.getPuddingSettings();
+      if (saved) {
+        if (saved.spreadsheetUrl) setSpreadsheetUrl(saved.spreadsheetUrl);
+        if (saved.columnMappings) setColumnMappings(saved.columnMappings);
+      }
+      
+      // Load Organization Shared Slots
+      if (role === 'broadcaster') {
+        const orgName = fullProfile?.broadcaster_name || fullProfile?.org || fullProfile?.name;
+        if (orgName) {
+           const sharedSlots = await api.getOrganizationSlots(orgName);
+           if (sharedSlots && sharedSlots.length > 0) {
+             setSpreadsheetSlots(sharedSlots);
+             setLastSynced('共有済み');
+           }
+        }
+      }
+      // Load Broadcaster AI settings
+      if (role === 'broadcaster') {
+        const aiSettings = await api.getBroadcasterAiSettings();
+        if (aiSettings && Object.keys(aiSettings).length > 0) {
+          if (aiSettings.aiModel) setBroadcasterAiModel(aiSettings.aiModel);
+          if (aiSettings.narrationVoice) setNarrationVoice(aiSettings.narrationVoice);
+          if (aiSettings.narrationSpeed) setNarrationSpeed(aiSettings.narrationSpeed);
+          if (aiSettings.narrationPitch !== undefined) setNarrationPitch(aiSettings.narrationPitch);
+          if (aiSettings.originalFiles) setAiOriginalFiles(aiSettings.originalFiles);
+          if (aiSettings.rewriteFiles) setAiRewriteFiles(aiSettings.rewriteFiles);
+        }
+      }
+    };
+    loadSettings();
   }, []);
+
+  const handleSaveAiSettings = async () => {
+     setIsSubmitting(true);
+     showToast('AI学習用データを保存・送信中...');
+     const settings = {
+       aiModel: broadcasterAiModel,
+       narrationVoice,
+       narrationSpeed,
+       narrationPitch,
+       originalFiles: aiOriginalFiles,
+       rewriteFiles: aiRewriteFiles
+     };
+     const success = await api.updateBroadcasterAiSettings(settings);
+     if (success) {
+        setTimeout(() => {
+           setIsSubmitting(false);
+           showToast('AIパラメータの更新と学習が完了しました。');
+        }, 2000);
+     } else {
+        setIsSubmitting(false);
+        showToast('設定の保存に失敗しました。', 'error');
+     }
+  };
+
+  const handleSaveNarrationSettings = async () => {
+    const settings = {
+      aiModel: broadcasterAiModel,
+      narrationVoice,
+      narrationSpeed,
+      narrationPitch,
+      originalFiles: aiOriginalFiles,
+      rewriteFiles: aiRewriteFiles
+    };
+    const success = await api.updateBroadcasterAiSettings(settings);
+    if (success) {
+       showToast('ナレーション設定を保存しました。');
+    } else {
+       showToast('設定の保存に失敗しました。', 'error');
+    }
+  };
 
   useEffect(() => {
     const projectsSubscription = supabase
@@ -328,16 +451,16 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
       const res = await api.bulkUpdateProjects(selectedBulkProjectIds, updateData);
       if (res.success) {
-        alert(`${selectedBulkProjectIds.length}件の案件を一括変更しました。`);
+        showToast(`${selectedBulkProjectIds.length}件の案件を一括変更しました。`);
         setSelectedBulkProjectIds([]);
         setActiveModal(null);
         fetchProjects();
       } else {
-        alert('一部または全ての変更に失敗しました。');
+        showToast('一部または全ての変更に失敗しました。');
       }
     } catch (err) {
       console.error(err);
-      alert('変更に失敗しました。');
+      showToast('変更に失敗しました。');
     } finally {
       setIsSubmitting(false);
     }
@@ -349,16 +472,16 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
     try {
       const res = await api.bulkUpdateProjects(selectedBulkProjectIds, { status: 'cancelled' });
       if (res.success) {
-        alert(`${selectedBulkProjectIds.length}件の案件を一括取り消ししました。`);
+        showToast(`${selectedBulkProjectIds.length}件の案件を一括取り消ししました。`);
         setSelectedBulkProjectIds([]);
         setActiveModal(null);
         fetchProjects();
       } else {
-        alert('一部または全ての取り消しに失敗しました。');
+        showToast('一部または全ての取り消しに失敗しました。');
       }
     } catch (err) {
       console.error(err);
-      alert('取り消しに失敗しました。');
+      showToast('取り消しに失敗しました。');
     } finally {
       setIsSubmitting(false);
     }
@@ -367,7 +490,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   const handleCopyProject = (sourceProject) => {
     setSelectedCopySource(sourceProject);
     setSponsorName(sourceProject.sponsor_name || '');
-    setProjectName(`コピー: ${sourceProject.name}`);
+    setProjectName(`${sourceProject.name} (コピー)`);
     setRequestDateRange({ 
       start: sourceProject.start_date || '', 
       end: sourceProject.end_date || '' 
@@ -380,6 +503,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
     setSelectedStations(sourceProject.selectedStations || sourceProject.metadata?.selectedStations || []);
     setStartHour(sourceProject.metadata?.start_hour || '05');
     setEndHour(sourceProject.metadata?.end_hour || '24');
+    
+    setActiveTab('new-request');
+    showToast(`案件「${sourceProject.name}」の内容をコピーしました。必要に応じて修正して依頼を出してください。`);
   };
 
   const handleEditSave = async () => {
@@ -420,13 +546,13 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const success = await api.saveStationResponse(selectedRequest.id, stationName, responseData);
       
       if (success) {
-        alert('詳細情報を更新しました。');
+        showToast('詳細情報を更新しました。');
         setActiveModal(null);
         await fetchProjects();
       }
     } catch (err) {
       console.error('[Pudding] Failed to save edit:', err);
-      alert('保存に失敗しました。詳細: ' + (err.message || '不明なエラー'));
+      showToast('保存に失敗しました。詳細: ' + (err.message || '不明なエラー'));
     } finally {
       setIsSubmitting(false);
     }
@@ -493,16 +619,16 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       if (success) {
         if (isFinal) {
           await api.updateProject(selectedRequest.id, { status: 'materials' });
-          alert('詳細情報を送信しました。');
+          showToast('詳細情報を送信しました。');
           setSelectedRequest(null);
           fetchProjects();
         } else {
-          alert('一時保存しました。');
+          showToast('一時保存しました。');
         }
       }
     } catch (err) {
       console.error('Failed to save response:', err);
-      alert('保存に失敗しました。');
+      showToast('保存に失敗しました。');
     } finally {
       setIsSubmitting(false);
     }
@@ -522,7 +648,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         return;
       }
       
-      alert(`ファイルを選択しました（${files.length}件）。アップロードを開始します...`);
+      showToast(`ファイルを選択しました（${files.length}件）。アップロードを開始します...`);
       setIsSubmitting(true);
       try {
         const uploadResults = await Promise.all(files.map(async file => ({
@@ -572,7 +698,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
             }
           }
 
-          alert(`${stationName} ${others.length > 0 ? `および他${others.length}件` : ''} の素材（${files.length}件）をアップロードしました。送信ボタンで確定してください。`);
+          showToast(`${stationName} ${others.length > 0 ? `および他${others.length}件` : ''} の素材（${files.length}件）をアップロードしました。送信ボタンで確定してください。`);
           fetchProjects();
           
           if (role === 'broadcaster' || activeTab === 'board') {
@@ -587,7 +713,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         }
       } catch (err) {
         console.error('Failed to upload material:', err);
-        alert('素材のアップロードに失敗しました: ' + (err.message || err));
+        showToast('素材のアップロードに失敗しました: ' + (err.message || err));
       } finally {
         setIsSubmitting(false);
         if (document.body.contains(input)) {
@@ -662,14 +788,14 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
            setSelectedProjectResponses(res || []);
         }
 
-        alert('ファイルを削除しました。');
+        showToast('ファイルを削除しました。');
         console.log('[Delete] Successfully completed');
       } else {
         throw new Error('Save failed');
       }
     } catch (e) {
       console.error('[Delete] Failed:', e);
-      alert('削除に失敗しました。詳細: ' + (e.message || '不明なエラー'));
+      showToast('削除に失敗しました。詳細: ' + (e.message || '不明なエラー'));
     } finally {
       setIsSubmitting(false);
     }
@@ -677,7 +803,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
   const handleMaterialUpload = async (projectId, stationName) => {
     if (isSubmitting) {
-      alert('現在他の作業を処理中です。終わるまでお待ちください。');
+      showToast('現在他の作業を処理中です。終わるまでお待ちください。');
       return; 
     }
     setIsSubmitting(true);
@@ -693,18 +819,18 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       });
       
       if (success) {
-        alert(`${stationName} への素材送信が完了しました。放送局側の「素材URL」が更新されます。`);
+        showToast(`${stationName} への素材送信が完了しました。放送局側の「素材URL」が更新されます。`);
         fetchProjects();
         if (selectedBoardProject) {
           const res = await api.getStationResponses(selectedBoardProject.id);
           setSelectedProjectResponses(res || []);
         }
       } else {
-        alert(`${stationName} への素材送信に失敗しました。もう一度お待ちください。`);
+        showToast(`${stationName} への素材送信に失敗しました。もう一度お待ちください。`);
       }
     } catch (e) {
       console.error('[送信] Failed:', e);
-      alert('素材の送信に失敗しました: ' + (e.message || e));
+      showToast('素材の送信に失敗しました: ' + (e.message || e));
     } finally {
       setIsSubmitting(false);
     }
@@ -717,7 +843,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const paths = current.response_data?.material_paths || (current.response_data?.material_path ? [current.response_data.material_path] : []);
       
       if (paths.length === 0) {
-        alert('素材ファイルが見当たりません。');
+        showToast('素材ファイルが見当たりません。');
         return;
       }
 
@@ -734,7 +860,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
           document.body.removeChild(a);
           await new Promise(r => setTimeout(r, 500));
         } else {
-          alert('素材ファイルの取得に失敗しました。ファイルが存在しないか、設定に問題がある可能性があります。');
+          showToast('素材ファイルの取得に失敗しました。ファイルが存在しないか、設定に問題がある可能性があります。');
           return;
         }
       }
@@ -748,7 +874,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       fetchProjects();
     } catch (err) {
       console.error('Failed to download material:', err);
-      alert('素材のダウンロードに失敗しました。');
+      showToast('素材のダウンロードに失敗しました。');
     }
   };
 
@@ -782,7 +908,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         });
         
         if (success) {
-          alert(`${stationName} の修正稿送信をアップロードしました。`);
+          showToast(`${stationName} の修正稿送信をアップロードしました。`);
           fetchProjects();
           if (selectedBoardProject) {
             const res = await api.getStationResponses(selectedBoardProject.id);
@@ -791,7 +917,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         }
       } catch (err) {
         console.error('Failed to upload rewrite:', err);
-        alert('修正稿送信のアップロードに失敗しました。');
+        showToast('修正稿送信のアップロードに失敗しました。');
       } finally {
         setIsSubmitting(false);
         if (document.body.contains(input)) {
@@ -820,7 +946,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       }
     } catch (e) {
       console.error(e);
-      alert('削除に失敗しました。');
+      showToast('削除に失敗しました。');
     }
   };
 
@@ -845,7 +971,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       }
     } catch (e) {
       console.error(e);
-      alert('削除に失敗しました。');
+      showToast('削除に失敗しました。');
     }
   };
 
@@ -855,7 +981,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const current = resp.find(r => r.station_name === stationName) || {};
       const path = current.response_data?.rewrite_path;
       const originalName = current.response_data?.rewrite_filename;
-      if (!path) { alert('修正稿が見当たりません。'); return; }
+      if (!path) { showToast('修正稿が見当たりません。'); return; }
       const url = await api.getRewriteUrl(path);
       if (url) {
         const a = document.createElement('a');
@@ -866,9 +992,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } else {
-        alert('修正稿のダウンロードに失敗しました。ファイルが削除されたか、アクセスできない可能性があります。');
+        showToast('修正稿のダウンロードに失敗しました。ファイルが削除されたか、アクセスできない可能性があります。');
       }
-    } catch (err) { alert('ダウンロードに失敗しました。'); }
+    } catch (err) { showToast('ダウンロードに失敗しました。'); }
   };
 
   const handleRevisedDownload = async (projectId, stationName) => {
@@ -877,7 +1003,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const current = resp.find(r => r.station_name === stationName) || {};
       const path = current.response_data?.revised_path;
       const originalName = current.response_data?.revised_filename;
-      if (!path) { alert('修正稿が見当たりません。'); return; }
+      if (!path) { showToast('修正稿が見当たりません。'); return; }
       const url = await api.getRewriteUrl(path, 'revised');
       if (url) {
         const a = document.createElement('a');
@@ -888,9 +1014,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } else {
-        alert('修正稿のダウンロードに失敗しました。設定を確認してください。');
+        showToast('修正稿のダウンロードに失敗しました。設定を確認してください。');
       }
-    } catch (err) { alert('ダウンロードに失敗しました。'); }
+    } catch (err) { showToast('ダウンロードに失敗しました。'); }
   };
 
   const handleRevisedUpload = (projectId, stationName) => {
@@ -923,7 +1049,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         });
         
         if (success) {
-          alert(`${stationName} への修正稿アップロードが完了しました。`);
+          showToast(`${stationName} への修正稿アップロードが完了しました。`);
           fetchProjects();
           if (selectedBoardProject) {
             const res = await api.getStationResponses(selectedBoardProject.id);
@@ -932,7 +1058,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         }
       } catch (err) {
         console.error('Failed to upload revised:', err);
-        alert('修正稿のアップロードに失敗しました。');
+        showToast('修正稿のアップロードに失敗しました。');
       } finally {
         setIsSubmitting(false);
         if (document.body.contains(input)) {
@@ -958,7 +1084,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       });
       
       if (success) {
-        alert(`${stationName} の修正稿送信を送信しました。制作側でダウンロード可能になります。`);
+        showToast(`${stationName} の修正稿送信を送信しました。制作側でダウンロード可能になります。`);
         fetchProjects();
         if (selectedBoardProject) {
           const res = await api.getStationResponses(selectedBoardProject.id);
@@ -967,7 +1093,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       }
     } catch (err) {
       console.error('Failed to send rewrite:', err);
-      alert('送信に失敗しました。');
+      showToast('送信に失敗しました。');
     } finally {
       setIsSubmitting(false);
     }
@@ -988,7 +1114,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       });
       
       if (success) {
-        alert('修正稿を送信しました。放送局の確認をお待ちください。');
+        showToast('修正稿を送信しました。放送局の確認をお待ちください。');
         fetchProjects();
         if (selectedBoardProject) {
           const res = await api.getStationResponses(selectedBoardProject.id);
@@ -997,7 +1123,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       }
     } catch (err) {
       console.error('Failed to send revised script:', err);
-      alert('送信に失敗しました。');
+      showToast('送信に失敗しました。');
     } finally {
       setIsSubmitting(false);
     }
@@ -1017,7 +1143,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       });
       
       if (success) {
-        alert('修正なしとして処理しました。完パケ工程へ移行します。');
+        showToast('修正なしとして処理しました。完パケ工程へ移行します。');
         fetchProjects();
         if (selectedBoardProject) {
           const res = await api.getStationResponses(selectedBoardProject.id);
@@ -1061,7 +1187,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         });
         
         if (success) {
-          alert(`${stationName} の完パケをアップロードしました。`);
+          showToast(`${stationName} の完パケをアップロードしました。`);
           fetchProjects();
           if (selectedBoardProject) {
             const res = await api.getStationResponses(selectedBoardProject.id);
@@ -1070,7 +1196,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         }
       } catch (err) {
         console.error('Failed to upload recording:', err);
-        alert('完パケのアップロードに失敗しました。');
+        showToast('完パケのアップロードに失敗しました。');
       } finally {
         setIsSubmitting(false);
         if (document.body.contains(input)) {
@@ -1089,7 +1215,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const originalName = current.response_data?.recording_filename;
       
       if (!path) {
-        alert('完パケファイルが見当たりません。');
+        showToast('完パケファイルが見当たりません。');
         return;
       }
 
@@ -1102,7 +1228,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        alert(`${stationName} の完パケファイルをダウンロードしました。`);
+        showToast(`${stationName} の完パケファイルをダウンロードしました。`);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         
         await api.saveStationResponse(projectId, stationName, {
@@ -1119,14 +1245,14 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       }
     } catch (err) {
       console.error('Failed to download recording:', err);
-      alert('完パケのダウンロードに失敗しました。');
+      showToast('完パケのダウンロードに失敗しました。');
     }
   };
 
 
   const handleCreateProject = async () => {
     if (!projectName || !sponsorName) {
-      alert('案件名とスポンサー名は必須です。');
+      showToast('案件名とスポンサー名は必須です。');
       return;
     }
     
@@ -1174,7 +1300,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const success = await api.createProject(projectData);
 
       if (success) {
-        alert('案件を作成しました。' + (selectedStations.length > 0 ? `\n放送局: ${selectedStations.join(', ')}` : ''));
+        showToast('案件を作成しました。' + (selectedStations.length > 0 ? `\n放送局: ${selectedStations.join(', ')}` : ''));
         
         setProjectName('');
         setSponsorName('');
@@ -1185,6 +1311,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         setSelectedStations([]);
         setRewriteReviewer('');
         setRecordingReviewer('');
+        setSelectedCopySource(null);
         
         setActiveTab('dashboard');
         
@@ -1192,11 +1319,11 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
           fetchProjects();
         }, 300);
       } else {
-        alert('案件の作成に失敗しました。');
+        showToast('案件の作成に失敗しました。', 'error');
       }
     } catch (err) {
       console.error('[Pudding] handleCreateProject error:', err);
-      alert('案件の作成中にエラーが発生しました。\n詳細: ' + (err.message || '不明なエラー'));
+      showToast('案件の作成中にエラーが発生しました。\n詳細: ' + (err.message || '不明なエラー'), 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -1353,12 +1480,12 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
               const statusColors = {
                 draft: { label: '下書き', color: '#94a3b8' },
                 requesting: { label: '打診中', color: '#f59e0b' },
-                slots: { label: '放送登録中', color: '#3b82f6' },
-                materials: { label: '素材受領済み', color: '#8b5cf6' },
-                rewrites: { label: '修正稿中', color: '#ec4899' },
-                recordings: { label: '完パケ受領済み', color: '#10b981' },
+                slots: { label: '枠出し待ち', color: '#64748b' },
+                materials: { label: '素材待ち', color: '#8b5cf6' },
+                rewrites: { label: 'リライト待ち', color: '#ec4899' },
+                recordings: { label: '同録待ち', color: '#10b981' },
                 completed: { label: '非表示', color: '#22c55e' },
-                cancelled: { label: '取消', color: '#ef4444' }
+                cancelled: { label: '削除済', color: '#ef4444' }
               };
               const statusInfo = statusColors[item.status] || { label: item.status, color: '#64748b' };
               return (
@@ -1406,8 +1533,14 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         return renderDashboard();
 
       case 'new-request': {
+        const pageTitle = selectedCopySource ? '案件コピー依頼' : '新規案件依頼';
+        const pageIcon = selectedCopySource ? Copy : Plus;
+        const pageDesc = selectedCopySource 
+          ? `元案件: ${selectedCopySource.name} の内容を引き継いで新しい案件を作成します。` 
+          : "新しい案件情報を入力して放送局へ依頼を出します。";
+
         return (
-          <PageView title="新規案件依頼" desc="新しい案件情報を入力して放送局へ依頼を出します。" icon={Plus} color="#059669">
+          <PageView title={pageTitle} desc={pageDesc} icon={pageIcon} color="#059669">
              <div style={{ backgroundColor: 'white', padding: '48px', borderRadius: '32px', border: '1.5px solid #F1E4C9', boxShadow: '0 20px 50px rgba(62,39,35,0.05)' }}>
                 <div style={{ display: 'grid', gap: '28px' }}>
                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
@@ -1636,10 +1769,10 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
            });
         }
         const boardColumns = [
-           { id: 'slots', title: '枠打診済', color: '#64748b' },
-           { id: 'materials', title: '素材受領済み', color: '#3b82f6' },
-           { id: 'rewrites', title: '修正稿中', color: '#f59e0b' },
-           { id: 'recordings', title: '完パケ受領済み', color: '#10b981' },
+           { id: 'slots', title: '枠出し待ち', color: '#64748b' },
+           { id: 'materials', title: '素材待ち', color: '#3b82f6' },
+           { id: 'rewrites', title: 'リライト待ち', color: '#f59e0b' },
+           { id: 'recordings', title: '同録待ち', color: '#10b981' },
         ].map(col => ({ ...col, items: boardItems.filter(item => item.status === col.id) }));
         return (
           <PageView title={selectedBoardProject ? `確認状況: ${selectedBoardProject.name}` : "案件ボード"} desc={selectedBoardProject ? "放送局ごとの確認状況を管理します。" : "案件の管理状況をボードで確認します。"} icon={Layout} color="#f59e0b" action={selectedBoardProject && (<button onClick={() => setSelectedBoardProject(null)} style={{ padding: '8px 20px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: 'white', fontWeight: '900', cursor: 'pointer' }}>一覧へ戻る</button>)}>
@@ -1661,7 +1794,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                           const responses = await api.getStationResponses(selectedBoardProject.id);
                                           const hiddenItems = responses.filter(r => r.response_data && r.response_data.agency_hidden === true);
                                           if (hiddenItems.length === 0) {
-                                            alert('非表示の案件はありません。');
+                                            showToast('非表示の案件はありません。');
                                             return;
                                           }
                                           for (const r of hiddenItems) {
@@ -1670,7 +1803,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                               agency_hidden: false
                                             });
                                           }
-                                          alert('全案件を再表示しました。');
+                                          showToast('全案件を再表示しました。');
                                           fetchProjects();
                                           const updatedRes = await api.getStationResponses(selectedBoardProject.id);
                                           setSelectedProjectResponses(updatedRes || []);
@@ -1688,7 +1821,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                   onClick={(e) => { 
                                     e.stopPropagation(); 
                                     if (role === 'agency') {
-                                      alert('選択されたすべての完パケデータをダウンロードします。');
+                                      showToast('選択されたすべての完パケデータをダウンロードします。');
                                       col.items.forEach(item => {
                                         if (item.has_recording) handleRecordingDownload(item.projectId || item.id, item.station);
                                       });
@@ -1731,7 +1864,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                         {item.has_material && (
                                            <div style={{ fontSize: '11px', color: '#059669', fontWeight: '950', display: 'flex', flexDirection: 'column', gap: '4px', backgroundColor: '#ecfdf5', padding: '8px', borderRadius: '8px', marginBottom: '8px' }}>
                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                  <Check size={14} /> 素材受領済み({(item.material_paths || []).length}件)
+                                                  <Check size={14} /> 素材待ち({(item.material_paths || []).length}件)
                                                </div>
                                                <div style={{ fontSize: '9px', color: '#065f46', borderTop: '1px solid #d1fae5', paddingTop: '4px', marginTop: '2px', opacity: 0.8 }}>
                                                   {(item.material_paths || []).map((path, idx) => {
@@ -1771,7 +1904,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                                   metadata: { [`response_${item.station}`]: { ...(selectedBoardProject.metadata?.[`response_${item.station}`] || {}), material_sent: true, status: 'registered' } }
                                                 }); 
                                                 if (success) {
-                                                  alert('素材送信が完了しました。');
+                                                  showToast('素材送信が完了しました。');
                                                   fetchProjects();
                                                 }
                                               }} 
@@ -1890,7 +2023,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                                 status: 'rewrite_ok'
                                               });
                                               if (success) {
-                                                alert('修正稿の送信が完了しました。');
+                                                showToast('修正稿の送信が完了しました。');
                                                 fetchProjects();
                                               }
                                             }} 
@@ -1932,7 +2065,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                          onClick={async (e) => { 
                                            e.stopPropagation(); 
                                            if (!item.recording_downloaded) {
-                                             alert('完パケDLボタンをクリックしてファイルをダウンロードしてから非表示にできます。');
+                                             showToast('完パケDLボタンをクリックしてファイルをダウンロードしてから非表示にできます。');
                                              return;
                                            }
                                            if (confirm('この案件を完了しますか？')) {
@@ -1945,7 +2078,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                                  agency_hidden: true
                                                });
                                                if (success) {
-                                                 alert('案件を完了しました。');
+                                                 showToast('案件を完了しました。');
                                                  fetchProjects();
                                                  if (selectedBoardProject) {
                                                    const updatedRes = await api.getStationResponses(selectedBoardProject.id);
@@ -1990,12 +2123,12 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                                    broadcaster_hidden: true
                                                  });
                                                  if (success) {
-                                                   alert('完パケの送信が完了しました。案件を完了として保存しました。');
+                                                   showToast('完パケの送信が完了しました。案件を完了として保存しました。');
                                                    fetchProjects();
                                                  }
                                                } catch (err) {
                                                  console.error('Failed to complete project:', err);
-                                                 alert('送信に失敗しました。');
+                                                 showToast('送信に失敗しました。');
                                                }
                                              }} 
                                              style={{ 
@@ -2051,12 +2184,12 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
             const respStatus = stationResp?.status || response.status;
             
             const statusLabel = 
-          p.status === 'cancelled' ? '案件終了' :
-          (response?.broadcaster_hidden === true || response?.agency_hidden === true) ? '非表示' :
-          (respStatus === 'registered' || respStatus === 'pending') ? '素材受領済み' :
-          (respStatus === 'material_ok' || respStatus === 'rewrites') ? '修正稿受領済み' :
-          (respStatus === 'rewrite_ok' || respStatus === 'recordings') ? '完パケ受領済み' :
-          p.status === 'requesting' ? '放送出力済み' : p.status;
+              p.status === 'cancelled' ? '削除済' :
+              (response?.broadcaster_hidden === true || response?.agency_hidden === true) ? '非表示' :
+              (respStatus === 'registered' || respStatus === 'pending') ? '素材待ち' :
+              (respStatus === 'material_ok' || respStatus === 'rewrites') ? 'リライト待ち' :
+              (respStatus === 'rewrite_ok' || respStatus === 'recordings') ? '同録待ち' :
+              p.status === 'requesting' ? '枠出し待ち' : p.status;
 
             excelRows.push({
               id: `${p.id}-${s}`,
@@ -2126,8 +2259,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                             <td style={{ padding: '16px 24px' }}>
                                <span style={{ 
                                   padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '900',
-                                  backgroundColor: row.status === '非表示' ? '#ecfdf5' : row.status === '素材受領済み' ? '#fff7ed' : '#f1f5f9',
-                                  color: row.status === '非表示' ? '#10b981' : row.status === '素材受領済み' ? '#f97316' : '#64748b'
+                                  backgroundColor: row.status === '非表示' ? '#ecfdf5' : row.status === '素材待ち' ? '#fff7ed' : '#f1f5f9',
+                                  color: row.status === '非表示' ? '#10b981' : row.status === '素材待ち' ? '#f97316' : '#64748b'
                                }}>
                                   {row.status}
                                </span>
@@ -2684,15 +2817,280 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
           </PageView>
         );
 
-      case 'ai-rewrite-settings':
+      case 'ai-rewrite-settings': {
+        const canSubmit = aiOriginalFiles.length >= 5 && aiRewriteFiles.length >= 5;
+        
+        if (role === 'admin') {
+          return (
+            <PageView title="AIシステム設定" desc="システム全体で使用するAIモデルとエンジンを設定します。" icon={Settings} color="#4338ca">
+               <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                  
+                  {/* リライト用AI設定 */}
+                  <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', border: '1.5px solid #F1E4C9', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ backgroundColor: '#f0fdf4', padding: '10px', borderRadius: '12px', border: '1.5px solid #dcfce7' }}>
+                           <Zap size={20} color="#16a34a" />
+                        </div>
+                        <SectionTitle title="AIリライト基盤モデル設定" />
+                     </div>
+                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                        <div className="input-group">
+                           <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>使用モデル (LLM)</label>
+                           <select style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white' }}>
+                              <option>GPT-4o (推奨)</option>
+                              <option>Claude 3.5 Sonnet</option>
+                              <option>Gemini 1.5 Pro</option>
+                              <option>GPT-4 Turbo</option>
+                           </select>
+                        </div>
+                        <div className="input-group">
+                           <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>応答の多様性 (Temperature)</label>
+                           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                              <input type="range" min="0" max="1" step="0.1" defaultValue="0.7" style={{ flex: 1 }} />
+                              <span style={{ fontSize: '14px', fontWeight: '950', color: '#3E2723' }}>0.7</span>
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+
+                  {/* ナレーション用AI設定 */}
+                  <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', border: '1.5px solid #F1E4C9', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ backgroundColor: '#eef2ff', padding: '10px', borderRadius: '12px', border: '1.5px solid #c7d2fe' }}>
+                           <Mic size={20} color="#4338ca" />
+                        </div>
+                        <SectionTitle title="AIナレーション基盤エンジン設定" />
+                     </div>
+                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                        <div className="input-group">
+                           <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>音声合成エンジン (TTS)</label>
+                           <select style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white' }}>
+                              <option>OpenAI TTS (HDモデル)</option>
+                              <option>ElevenLabs (V2モデル)</option>
+                              <option>Google Cloud TTS (Neural2)</option>
+                              <option>VOICEVOX (ローカル連携)</option>
+                           </select>
+                        </div>
+                        <div className="input-group">
+                           <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>デフォルト音質設定</label>
+                           <select style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white' }}>
+                              <option>高音質 (48kHz/24bit)</option>
+                              <option>標準 (44.1kHz/16bit)</option>
+                              <option>帯域節約 (22kHz/mono)</option>
+                           </select>
+                        </div>
+                     </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                     <button 
+                        onClick={() => showToast('AIシステム設定を保存しました。システム全体に反映されます。')}
+                        style={{ 
+                           padding: '16px 48px', borderRadius: '16px', backgroundColor: '#3E2723', color: 'white', fontWeight: '950', border: 'none', cursor: 'pointer', fontSize: '16px', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '10px'
+                        }}
+                     >
+                        <Save size={18} /> システム設定を保存
+                     </button>
+                  </div>
+               </div>
+            </PageView>
+          );
+        }
+
+        const handleFileUpload = (side, files) => {
+          const fileList = Array.from(files).map(f => ({ name: f.name, size: f.size, date: new Date().toLocaleDateString() }));
+          if (side === 'original') {
+            if (aiOriginalFiles.length + fileList.length > 10) {
+              showToast('元原稿は最大10ファイルまでです。', 'error');
+              return;
+            }
+            setAiOriginalFiles([...aiOriginalFiles, ...fileList]);
+          } else {
+            if (aiRewriteFiles.length + fileList.length > 10) {
+              showToast('リライト原稿は最大10ファイルまでです。', 'error');
+              return;
+            }
+            setAiRewriteFiles([...aiRewriteFiles, ...fileList]);
+          }
+        };
+
+        const removeFile = (side, index) => {
+          if (side === 'original') {
+            setAiOriginalFiles(aiOriginalFiles.filter((_, i) => i !== index));
+          } else {
+            setAiRewriteFiles(aiRewriteFiles.filter((_, i) => i !== index));
+          }
+        };
+
         return (
-          <PageView title="AI修正稿設定" desc="AIのパラメータを学習させます。" icon={Settings} color="#10b981">
-             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>設定</div>
-                <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>設定</div>
+          <PageView title="AIリライト/ナレ設定" desc="AIのパラメータを学習・設定し、制作の精度を高めます。" icon={Settings} color="#10b981">
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '48px' }}>
+                
+                {/* 上段: AIリライト設定 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ backgroundColor: '#f0fdf4', padding: '10px', borderRadius: '12px', border: '1.5px solid #dcfce7' }}>
+                         <Zap size={20} color="#16a34a" />
+                      </div>
+                      <SectionTitle title="AIリライト学習設定" />
+                   </div>
+
+                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                {/* 左: 元原稿アップローダー */}
+                <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', border: '1.5px solid #F1E4C9', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                      <div style={{ backgroundColor: '#f0fdf4', padding: '10px', borderRadius: '12px', border: '1.5px solid #dcfce7' }}>
+                         <FileText size={20} color="#16a34a" />
+                      </div>
+                      <SectionTitle title="元原稿アップロード" />
+                      <button 
+                         onClick={() => document.getElementById('ai-orig-input').click()}
+                         style={{ 
+                            marginLeft: 'auto', padding: '8px 16px', borderRadius: '10px', backgroundColor: '#f0fdf4', color: '#16a34a', border: '1.5px solid #dcfce7', fontSize: '12px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                         }}
+                      >
+                         <Upload size={14} /> ファイル選択
+                      </button>
+                      <div style={{ fontSize: '13px', fontWeight: '950', color: aiOriginalFiles.length >= 5 ? '#16a34a' : '#94a3b8', minWidth: '45px', textAlign: 'right' }}>
+                         {aiOriginalFiles.length} / 10
+                      </div>
+                      <input id="ai-orig-input" type="file" multiple hidden onChange={(e) => handleFileUpload('original', e.target.files)} />
+                   </div>
+
+                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '120px', padding: '16px', backgroundColor: '#fcfcfc', borderRadius: '16px', border: '1.5px dashed #F1E4C9' }}>
+                      {aiOriginalFiles.map((f, i) => (
+                         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                            <div style={{ fontSize: '13px', fontWeight: '700', color: '#3E2723', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}>{f.name}</div>
+                            <button onClick={() => removeFile('original', i)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: '4px' }}><Trash2 size={16} /></button>
+                         </div>
+                      ))}
+                      {aiOriginalFiles.length === 0 && <div style={{ textAlign: 'center', padding: '40px', color: '#cbd5e1', fontSize: '13px' }}>ファイルが選択されていません</div>}
+                   </div>
+                </div>
+
+                {/* 右: リライト原稿アップローダー */}
+                <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', border: '1.5px solid #F1E4C9', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                      <div style={{ backgroundColor: '#fff7ed', padding: '10px', borderRadius: '12px', border: '1.5px solid #ffedd5' }}>
+                         <Zap size={20} color="#ea580c" />
+                      </div>
+                      <SectionTitle title="リライト原稿アップロード" />
+                      <button 
+                         onClick={() => document.getElementById('ai-rew-input').click()}
+                         style={{ 
+                            marginLeft: 'auto', padding: '8px 16px', borderRadius: '10px', backgroundColor: '#fff7ed', color: '#ea580c', border: '1.5px solid #ffedd5', fontSize: '12px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                         }}
+                      >
+                         <Upload size={14} /> ファイル選択
+                      </button>
+                      <div style={{ fontSize: '13px', fontWeight: '950', color: aiRewriteFiles.length >= 5 ? '#ea580c' : '#94a3b8', minWidth: '45px', textAlign: 'right' }}>
+                         {aiRewriteFiles.length} / 10
+                      </div>
+                      <input id="ai-rew-input" type="file" multiple hidden onChange={(e) => handleFileUpload('rewrite', e.target.files)} />
+                   </div>
+
+                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '120px', padding: '16px', backgroundColor: '#fcfcfc', borderRadius: '16px', border: '1.5px dashed #F1E4C9' }}>
+                      {aiRewriteFiles.map((f, i) => (
+                         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                            <div style={{ fontSize: '13px', fontWeight: '700', color: '#3E2723', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}>{f.name}</div>
+                            <button onClick={() => removeFile('rewrite', i)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: '4px' }}><Trash2 size={16} /></button>
+                         </div>
+                      ))}
+                      {aiRewriteFiles.length === 0 && <div style={{ textAlign: 'center', padding: '40px', color: '#cbd5e1', fontSize: '13px' }}>ファイルが選択されていません</div>}
+                   </div>
+                </div>
+             </div>
+
+             <div style={{ backgroundColor: '#FFFBE6', padding: '24px', borderRadius: '20px', border: '1.5px solid #F1E4C9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                   <div style={{ backgroundColor: 'white', padding: '12px', borderRadius: '12px' }}>
+                      <AlertCircle size={20} color="#8B4513" />
+                   </div>
+                   <div style={{ fontSize: '14px', color: '#8B4513', fontWeight: '800', lineHeight: '1.6' }}>
+                      AIの精度向上のため、元原稿とリライト原稿をペアで各5ファイル以上（最大10ファイル）アップロードしてください。<br/>
+                      学習には数分かかる場合があります。
+                   </div>
+                </div>
+                <button 
+                   disabled={!canSubmit || isSubmitting}
+                   onClick={() => {
+                      setIsSubmitting(true);
+                      showToast('AI学習用データの送信を開始しました。処理に数分かかります。');
+                      setTimeout(() => {
+                         setIsSubmitting(false);
+                         showToast('AIパラメータの更新が完了しました。');
+                      }, 3000);
+                   }}
+                   style={{ 
+                      padding: '16px 48px', borderRadius: '16px', backgroundColor: canSubmit ? '#3E2723' : '#cbd5e1', color: 'white', fontWeight: '950', border: 'none', cursor: canSubmit ? 'pointer' : 'not-allowed', fontSize: '16px', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '10px'
+                   }}
+                >
+                   {isSubmitting ? '学習中...' : '設定を適用して学習を開始'}
+                   {!isSubmitting && <Send size={18} />}
+                </button>
+             </div>
+          </div>
+
+             {/* 下段: AIナレーション設定 */}
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                   <div style={{ backgroundColor: '#eef2ff', padding: '10px', borderRadius: '12px', border: '1.5px solid #c7d2fe' }}>
+                      <Mic size={20} color="#4338ca" />
+                   </div>
+                   <SectionTitle title="AIナレーション設定" />
+                </div>
+
+                <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', border: '1.5px solid #F1E4C9', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px' }}>
+                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="input-group">
+                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>デフォルト音声モデル</label>
+                         <div style={{ display: 'flex', gap: '12px' }}>
+                            <select style={{ flex: 1, padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white' }}>
+                               <option>男性モデル A (ニュース系)</option>
+                               <option>女性モデル B (明るい系)</option>
+                               <option>女性モデル C (落ち着いた系)</option>
+                               <option>キャラクターモデル D (バラエティ系)</option>
+                            </select>
+                            <button 
+                               onClick={() => showToast('サンプル音声を再生しています...', 'success')}
+                               style={{ 
+                                  padding: '0 24px', borderRadius: '16px', backgroundColor: '#eef2ff', color: '#4338ca', border: '1.5px solid #c7d2fe', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap'
+                                }}
+                            >
+                               <Play size={18} fill="#4338ca" /> サンプル再生
+                            </button>
+                         </div>
+                      </div>
+                      <div className="input-group">
+                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>読み上げスピード</label>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                            <input type="range" min="0.5" max="2.0" step="0.1" defaultValue="1.0" style={{ flex: 1, cursor: 'pointer' }} />
+                            <span style={{ fontSize: '14px', fontWeight: '950', color: '#3E2723', minWidth: '40px' }}>1.0x</span>
+                         </div>
+                      </div>
+                   </div>
+                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="input-group">
+                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>ピッチ（声の高さ）</label>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                            <input type="range" min="-10" max="10" step="1" defaultValue="0" style={{ flex: 1, cursor: 'pointer' }} />
+                            <span style={{ fontSize: '14px', fontWeight: '950', color: '#3E2723', minWidth: '40px' }}>±0</span>
+                         </div>
+                      </div>
+                      <button 
+                        onClick={() => showToast('ナレーション設定を保存しました。')}
+                        style={{ marginTop: 'auto', padding: '14px', borderRadius: '16px', backgroundColor: '#4338ca', color: 'white', fontWeight: '950', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                      >
+                         <Save size={18} /> ナレーション設定を保存
+                      </button>
+                   </div>
+                </div>
+             </div>
+
              </div>
           </PageView>
         );
+      }
 
       case 'slot-management-table':
         return (
@@ -2729,7 +3127,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                          />
                       </div>
                       <button 
-                         onClick={() => alert('接続を確認しています...')}
+                         onClick={() => showToast('接続を確認しています...')}
                          style={{ 
                             padding: '16px 32px', 
                             borderRadius: '16px', 
@@ -2745,15 +3143,21 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                       </button>
                       <button 
                          onClick={() => {
-                           alert('スプレッドシートから枠情報を同期しました。カレンダーに反映されます。');
+                           showToast('スプレッドシートから枠情報を同期しました。カレンダーに反映され、チームに共有されます。');
                            const y = new Date().getFullYear();
                            const m = String(new Date().getMonth() + 1).padStart(2, '0');
-                           setSpreadsheetSlots([
+                            const newSlots = [
                              { id: 's1', date: `${y}-${m}-15`, programName: '朝のニュース', time: '08:00 - 08:30', duration: '30s' },
                              { id: 's2', date: `${y}-${m}-18`, programName: '情報ライブ', time: '14:00 - 15:00', duration: '60s' },
                              { id: 's3', date: `${y}-${m}-20`, programName: '深夜バラエティ', time: '24:00 - 24:30', duration: '15s' },
                              { id: 's4', date: `${y}-${m}-25`, programName: '週末スポーツ', time: '18:00 - 19:00', duration: '60s' }
-                           ]);
+                            ];
+                            setSpreadsheetSlots(newSlots);
+                            setLastSynced(new Date().toLocaleString());
+                            const orgName = fullProfile?.broadcaster_name || fullProfile?.org || fullProfile?.name;
+                            if (orgName) {
+                              api.saveOrganizationSlots(orgName, newSlots);
+                            }
                          }}
                          style={{ 
                             padding: '16px 32px', 
@@ -2808,80 +3212,67 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                       </button>
                    </div>
 
-                   <div style={{ border: '1.5px solid #F1E4C9', borderRadius: '20px', overflow: 'hidden' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                         <thead>
-                            <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1.5px solid #F1E4C9' }}>
-                               <th style={{ padding: '16px 24px', textAlign: 'left', fontSize: '12px', fontWeight: '950', color: '#64748b' }}>反映項目</th>
-                               <th style={{ padding: '16px 24px', textAlign: 'left', fontSize: '12px', fontWeight: '950', color: '#64748b' }}>スプシ列名（A, B, C...）</th>
-                               <th style={{ padding: '16px 24px', textAlign: 'left', fontSize: '12px', fontWeight: '950', color: '#64748b' }}>サンプルプレビュー</th>
-                               <th style={{ padding: '16px 24px', width: '60px' }}></th>
-                            </tr>
-                         </thead>
-                         <tbody>
-                            {columnMappings.map((item) => (
-                               <tr key={item.id} style={{ borderBottom: '1px solid #F1E4C9' }}>
-                                  <td style={{ padding: '16px 24px' }}>
-                                     {item.isCustom ? (
-                                        <input 
-                                           type="text" 
-                                           value={item.label}
-                                           onChange={(e) => handleUpdateMapping(item.id, 'label', e.target.value)}
-                                           style={{ 
-                                              padding: '6px 12px', 
-                                              borderRadius: '8px', 
-                                              border: '1.5px solid #F1E4C9', 
-                                              fontSize: '14px', 
-                                              fontWeight: '900',
-                                              width: '160px',
-                                              outline: 'none'
-                                           }}
-                                        />
-                                     ) : (
-                                        <span style={{ fontSize: '14px', fontWeight: '900', color: '#3E2723' }}>{item.label}</span>
-                                     )}
-                                  </td>
-                                  <td style={{ padding: '16px 24px' }}>
-                                     <select 
-                                        value={item.column}
-                                        onChange={(e) => handleUpdateMapping(item.id, 'column', e.target.value)}
-                                        style={{ 
-                                           padding: '8px 16px', 
-                                           borderRadius: '10px', 
-                                           border: '1.5px solid #F1E4C9', 
-                                           fontSize: '14px', 
-                                           fontWeight: '800',
-                                           backgroundColor: 'white',
-                                           outline: 'none'
-                                        }}
-                                     >
-                                        {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(letter => (
-                                           <option key={letter} value={letter}>列 {letter}</option>
-                                        ))}
-                                     </select>
-                                  </td>
-                                  <td style={{ padding: '16px 24px', fontSize: '13px', color: '#94a3b8', fontStyle: 'italic' }}>
-                                     {item.sample}
-                                  </td>
-                                  <td style={{ padding: '16px 24px' }}>
-                                     {item.isCustom && (
-                                        <button 
-                                           onClick={() => handleRemoveMapping(item.id)}
-                                           style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#ef4444' }}
-                                        >
-                                           <Trash2 size={16} />
-                                        </button>
-                                     )}
-                                  </td>
-                               </tr>
-                            ))}
-                         </tbody>
-                      </table>
+                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', backgroundColor: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1.5px solid #F1E4C9' }}>
+                      {columnMappings.map((item) => (
+                         <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', backgroundColor: 'white', borderRadius: '12px', border: '1.5px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                               {item.isCustom ? (
+                                  <input 
+                                     type="text" 
+                                     value={item.label}
+                                     onChange={(e) => handleUpdateMapping(item.id, 'label', e.target.value)}
+                                     placeholder="項目名を入力"
+                                     style={{ 
+                                        padding: '8px 12px', 
+                                        borderRadius: '8px', 
+                                        border: '1.5px solid #cbd5e1', 
+                                        fontSize: '13px', 
+                                        fontWeight: '950',
+                                        width: '180px',
+                                        outline: 'none',
+                                        color: '#334155'
+                                     }}
+                                  />
+                               ) : (
+                                  <span style={{ fontSize: '13px', fontWeight: '950', color: '#475569' }}>{item.label}</span>
+                               )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                               <select 
+                                  value={item.column}
+                                  onChange={(e) => handleUpdateMapping(item.id, 'column', e.target.value)}
+                                  style={{ 
+                                     padding: '8px 16px', 
+                                     borderRadius: '8px', 
+                                     border: '1.5px solid #cbd5e1', 
+                                     fontSize: '14px', 
+                                     fontWeight: '900',
+                                     backgroundColor: '#f1f5f9',
+                                     color: '#334155',
+                                     outline: 'none',
+                                     cursor: 'pointer'
+                                  }}
+                               >
+                                  {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(letter => (
+                                     <option key={letter} value={letter}>列 {letter}</option>
+                                  ))}
+                               </select>
+                               {item.isCustom && (
+                                  <button 
+                                     onClick={() => handleRemoveMapping(item.id)}
+                                     style={{ border: 'none', backgroundColor: '#fee2e2', color: '#ef4444', padding: '8px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                  >
+                                     <Trash2 size={16} />
+                                  </button>
+                               )}
+                            </div>
+                         </div>
+                      ))}
                    </div>
                    
                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
                       <button 
-                         onClick={() => alert('設定を保存しました。')}
+                         onClick={handleSaveSettings}
                          style={{ 
                             padding: '14px 40px', 
                             borderRadius: '14px', 
@@ -2899,13 +3290,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                 </div>
 
              </div>
-          </PageView>
-        );
-
-      case 'ai-narration-settings':
-        return (
-          <PageView title="AIナレーション生成" desc="音声を生成します。" icon={Mic} color="#6366f1">
-             <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>音声設定...</div>
           </PageView>
         );
 
@@ -2946,7 +3330,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                    <button 
                       onClick={async () => {
                         if (!pasteText.trim()) {
-                          alert('メール本文を入力してください。');
+                          showToast('メール本文を入力してください。');
                           return;
                         }
                         try {
@@ -2976,12 +3360,12 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                           const updated = await api.getProjects();
                           setProjects(updated);
                           
-                          alert(`メールから案件「${parsedName}」を自動作成しました。`);
+                          showToast(`メールから案件「${parsedName}」を自動作成しました。`);
                           setPasteText(''); // クリア
                           setActiveTab('dashboard'); // ダッシュボードへ戻る
                         } catch (err) {
                           console.error(err);
-                          alert('案件の自動作成に失敗しました。詳細: ' + (err.message || err));
+                          showToast('案件の自動作成に失敗しました。詳細: ' + (err.message || err));
                         } finally {
                           setIsSubmitting(false);
                         }
@@ -3049,7 +3433,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                             </div>
                             <div style={{ display: 'flex', gap: '10px' }}>
                                <button 
-                                  onClick={(e) => { e.stopPropagation(); alert(email?.body || '本文なし'); }}
+                                  onClick={(e) => { e.stopPropagation(); showToast(email?.body || '本文なし'); }}
                                   style={{ flex: 1, padding: '10px', borderRadius: '10px', backgroundColor: 'white', border: '1.5px solid #e2e8f0', fontSize: '12px', fontWeight: '900', cursor: 'pointer' }}
                                >内容表示</button>
                                <button 
@@ -3177,6 +3561,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   return (
     <div style={{ padding: '2.5rem', maxWidth: '1400px', margin: '0 auto' }}>
       {renderContent()}
+
+      {/* Toast Notification */}
+      <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: '', type: 'success' })} />
 
       {activeModal === 'slot-edit' && selectedRequest && (
           <Modal title="詳細情報編集" onClose={() => setActiveModal(null)} width="800px" hideFooter={true}>
@@ -3326,7 +3713,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                         style={{ display: 'none' }}
                         onChange={(e) => {
                            const files = Array.from(e.target.files);
-                           if (files.length > 0) alert(`${files.length}件のファイルを選択しました。`);
+                           if (files.length > 0) showToast(`${files.length}件のファイルを選択しました。`);
                         }}
                      />
                   </div>
@@ -3334,7 +3721,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
                <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
                   <button onClick={() => setActiveModal(null)} style={{ flex: 1, padding: '16px', borderRadius: '16px', backgroundColor: 'white', border: '2px solid #F1E4C9', fontWeight: '950', cursor: 'pointer' }}>キャンセル</button>
-                  <button onClick={() => alert('一括アップロード機能は現在開発中です。')} style={{ flex: 1.5, padding: '16px', borderRadius: '16px', backgroundColor: '#10b981', color: 'white', border: 'none', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                  <button onClick={() => showToast('一括アップロード機能は現在開発中です。')} style={{ flex: 1.5, padding: '16px', borderRadius: '16px', backgroundColor: '#10b981', color: 'white', border: 'none', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                      <Send size={18} /> 一括アップロード
                   </button>
                </div>

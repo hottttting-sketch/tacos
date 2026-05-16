@@ -796,15 +796,6 @@ export const api = {
         console.warn('[API] saveStationResponse failed, trying fallback...', error);
       }
     } catch (e) {
-      console.warn('[API] saveStationResponse exception, trying fallback...', e);
-    }
-
-    // 2. Profile Hack (profilesテーブルにJSONとして保存)
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-        
         let responses = [];
         const rawData = profile?.full_name || profile?.name || profile?.ful_name || '';
         if (rawData.includes('[RESPONSES_JSON]')) {
@@ -1340,6 +1331,313 @@ export const api = {
       return true;
     } catch (e) {
       console.error('[API] updateMaBaMappings failed:', e);
+      return false;
+    }
+  },
+  
+  // --- Pudding Spreadsheet Settings (Profile Hack) ---
+  getPuddingSettings: async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      const rawData = profile?.full_name || profile?.name || profile?.ful_name || '';
+      if (rawData.includes('[PUDDING_SETTINGS_JSON]')) {
+        const match = rawData.match(/\[PUDDING_SETTINGS_JSON\](.*?)(?=\[[A-Z_]+_JSON\]|$)/);
+        if (match) return JSON.parse(match[1]);
+      }
+    } catch (e) {
+      console.error('[API] getPuddingSettings failed:', e);
+    }
+    return null;
+  },
+  savePuddingSettings: async (settings) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return false;
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      
+      let currentVal = profile?.full_name || profile?.name || profile?.ful_name || '';
+      const tag = '[PUDDING_SETTINGS_JSON]';
+      const content = JSON.stringify(settings);
+      
+      if (currentVal.includes(tag)) {
+        currentVal = currentVal.replace(/\[PUDDING_SETTINGS_JSON\].*?(?=\[[A-Z_]+_JSON\]|$)/, `${tag}${content}`);
+      } else {
+        currentVal += `${tag}${content}`;
+      }
+      
+      const upData = {};
+      if (profile && 'full_name' in profile) upData.full_name = currentVal;
+      else if (profile && 'ful_name' in profile) upData.ful_name = currentVal;
+      else upData.name = currentVal;
+      
+      const { error } = await supabase.from('profiles').update(upData).eq('id', user.id);
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      console.error('[API] savePuddingSettings failed:', e);
+      return false;
+    }
+  },
+
+  // --- Organization Slots (Shared among team members) ---
+  saveOrganizationSlots: async (orgName, slots) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return false;
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      
+      let currentVal = profile?.full_name || profile?.name || profile?.ful_name || '';
+      const tag = `[ORG_SLOTS_JSON]`;
+      const content = JSON.stringify({ org: orgName, slots, timestamp: new Date().toISOString() });
+      
+      if (currentVal.includes(tag)) {
+        currentVal = currentVal.replace(/\[ORG_SLOTS_JSON\].*?(?=\[[A-Z_]+_JSON\]|$)/, `${tag}${content}`);
+      } else {
+        currentVal += `${tag}${content}`;
+      }
+      
+      const upData = {};
+      if (profile && 'full_name' in profile) upData.full_name = currentVal;
+      else if (profile && 'ful_name' in profile) upData.ful_name = currentVal;
+      else upData.name = currentVal;
+      
+      await supabase.from('profiles').update(upData).eq('id', user.id);
+      return true;
+    } catch (e) {
+      console.error('[API] saveOrganizationSlots failed:', e);
+      return false;
+    }
+  },
+  getOrganizationSlots: async (orgName) => {
+    try {
+      const { data: profiles } = await supabase.from('profiles').select('*');
+      if (!profiles) return [];
+      
+      let latestSlots = [];
+      let latestTime = 0;
+      
+      profiles.forEach(p => {
+        const rawData = p.full_name || p.name || p.ful_name || '';
+        if (rawData.includes('[ORG_SLOTS_JSON]')) {
+          const match = rawData.match(/\[ORG_SLOTS_JSON\](.*?)(?=\[[A-Z_]+_JSON\]|$)/);
+          if (match) {
+            try {
+              const data = JSON.parse(match[1]);
+              if (data.org === orgName) {
+                const time = new Date(data.timestamp).getTime();
+                if (time > latestTime) {
+                  latestTime = time;
+                  latestSlots = data.slots;
+                }
+              }
+            } catch (e) {}
+          }
+        }
+      });
+      return latestSlots;
+    } catch (e) {
+      console.error('[API] getOrganizationSlots failed:', e);
+      return [];
+    }
+  },
+
+  // --- SYSTEM CONFIG (AI Settings etc.) ---
+  getSystemConfig: async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return {};
+
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      const rawData = profile?.full_name || profile?.name || profile?.ful_name || '';
+      
+      if (rawData.includes('[SYSTEM_CONFIG_JSON]')) {
+        const match = rawData.match(/\[SYSTEM_CONFIG_JSON\](.*?)(?=\[[A-Z_]+_JSON\]|$)/);
+        if (match) return JSON.parse(match[1]);
+      }
+      
+      return {
+        defaultAiModel: 'Claude 3.5 Sonnet',
+        defaultTtsEngine: 'OpenAI TTS',
+        aiTemperature: 0.7,
+        maxTokens: 2000
+      };
+    } catch (e) {
+      console.error('[API] getSystemConfig failed:', e);
+      return {};
+    }
+  },
+
+  updateSystemConfig: async (config) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return false;
+
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      let currentVal = profile?.full_name || profile?.name || profile?.ful_name || '';
+      
+      const jsonStr = JSON.stringify(config);
+      if (currentVal.includes('[SYSTEM_CONFIG_JSON]')) {
+        currentVal = currentVal.replace(/\[SYSTEM_CONFIG_JSON\].*?(?=\[[A-Z_]+_JSON\]|$)/, `[SYSTEM_CONFIG_JSON]${jsonStr}`);
+      } else {
+        currentVal += `[SYSTEM_CONFIG_JSON]${jsonStr}`;
+      }
+
+      const upData = {};
+      if (profile && 'full_name' in profile) upData.full_name = currentVal;
+      else if (profile && 'ful_name' in profile) upData.ful_name = currentVal;
+      else upData.name = currentVal;
+
+      const { error } = await supabase.from('profiles').update(upData).eq('id', user.id);
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      console.error('[API] updateSystemConfig failed:', e);
+      return false;
+    }
+  },
+
+  // --- BROADCASTER AI SETTINGS ---
+  getBroadcasterAiSettings: async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return {};
+
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      const rawData = profile?.full_name || profile?.name || profile?.ful_name || '';
+      
+      if (rawData.includes('[AI_SETTINGS_JSON]')) {
+        const match = rawData.match(/\[AI_SETTINGS_JSON\](.*?)(?=\[[A-Z_]+_JSON\]|$)/);
+        if (match) return JSON.parse(match[1]);
+      }
+      
+      return {
+        aiModel: 'GPT-4o',
+        narrationVoice: 'female1',
+        narrationSpeed: 1.0,
+        narrationPitch: 0,
+        originalFiles: [],
+        rewriteFiles: []
+      };
+    } catch (e) {
+      console.error('[API] getBroadcasterAiSettings failed:', e);
+      return {};
+    }
+  },
+
+  updateBroadcasterAiSettings: async (settings) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return false;
+
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      let currentVal = profile?.full_name || profile?.name || profile?.ful_name || '';
+      
+      const jsonStr = JSON.stringify(settings);
+      if (currentVal.includes('[AI_SETTINGS_JSON]')) {
+        currentVal = currentVal.replace(/\[AI_SETTINGS_JSON\].*?(?=\[[A-Z_]+_JSON\]|$)/, `[AI_SETTINGS_JSON]${jsonStr}`);
+      } else {
+        currentVal += `[AI_SETTINGS_JSON]${jsonStr}`;
+      }
+
+      const upData = {};
+      if (profile && 'full_name' in profile) upData.full_name = currentVal;
+      else if (profile && 'ful_name' in profile) upData.ful_name = currentVal;
+      else upData.name = currentVal;
+
+      const { error } = await supabase.from('profiles').update(upData).eq('id', user.id);
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      console.error('[API] updateBroadcasterAiSettings failed:', e);
+      return false;
+    }
+  },
+
+  // --- SENT URL MANAGEMENT ---
+  getSentUrls: async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      const rawData = profile?.full_name || profile?.name || profile?.ful_name || '';
+      
+      if (rawData.includes('[SENT_URLS_JSON]')) {
+        const match = rawData.match(/\[SENT_URLS_JSON\](.*?)(?=\[[A-Z_]+_JSON\]|$)/);
+        if (match) return JSON.parse(match[1]);
+      }
+      return [];
+    } catch (e) {
+      console.error('[API] getSentUrls failed:', e);
+      return [];
+    }
+  },
+
+  generateSentUrl: async (projectId, stationName, type) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      const urls = await api.getSentUrls();
+      const newUrl = {
+        id: crypto.randomUUID(),
+        projectId,
+        stationName,
+        type, // 'slots', 'materials', 'recordings'
+        slug: Math.random().toString(36).substring(2, 15),
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString() // 14 days
+      };
+      
+      const newUrls = [...urls, newUrl];
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      let currentVal = profile?.full_name || profile?.name || profile?.ful_name || '';
+      
+      const jsonStr = JSON.stringify(newUrls);
+      if (currentVal.includes('[SENT_URLS_JSON]')) {
+        currentVal = currentVal.replace(/\[SENT_URLS_JSON\].*?(?=\[[A-Z_]+_JSON\]|$)/, `[SENT_URLS_JSON]${jsonStr}`);
+      } else {
+        currentVal += `[SENT_URLS_JSON]${jsonStr}`;
+      }
+
+      const upData = {};
+      if (profile && 'full_name' in profile) upData.full_name = currentVal;
+      else if (profile && 'ful_name' in profile) upData.ful_name = currentVal;
+      else upData.name = currentVal;
+
+      await supabase.from('profiles').update(upData).eq('id', user.id);
+      return newUrl;
+    } catch (e) {
+      console.error('[API] generateSentUrl failed:', e);
+      return null;
+    }
+  },
+
+  deleteSentUrl: async (id) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return false;
+
+      const urls = await api.getSentUrls();
+      const newUrls = urls.filter(u => u.id !== id);
+      
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      let currentVal = profile?.full_name || profile?.name || profile?.ful_name || '';
+      
+      const jsonStr = JSON.stringify(newUrls);
+      currentVal = currentVal.replace(/\[SENT_URLS_JSON\].*?(?=\[[A-Z_]+_JSON\]|$)/, `[SENT_URLS_JSON]${jsonStr}`);
+
+      const upData = {};
+      if (profile && 'full_name' in profile) upData.full_name = currentVal;
+      else if (profile && 'ful_name' in profile) upData.ful_name = currentVal;
+      else upData.name = currentVal;
+
+      await supabase.from('profiles').update(upData).eq('id', user.id);
+      return true;
+    } catch (e) {
+      console.error('[API] deleteSentUrl failed:', e);
       return false;
     }
   }
