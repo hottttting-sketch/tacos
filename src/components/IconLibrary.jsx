@@ -5,7 +5,7 @@ import {
   ArrowLeft, Shield, Radio, Check, Mic, Video, ChevronRight, 
   ChevronDown, ChevronUp, Filter, Trash2, Download, Upload,
   Search,
-  Circle, Square, MoveRight, Type, Presentation, X
+  Circle, Square, MoveRight, Type, Presentation, X, Paperclip
 } from 'lucide-react';
 
 export const Icons = {
@@ -51,5 +51,6 @@ export const Icons = {
   Text: Type,
   Role: Shield,
   Trash: Trash2,
-  X: X
+  X: X,
+  Clip: Paperclip
 };

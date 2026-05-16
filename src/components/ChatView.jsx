@@ -7,20 +7,67 @@ const ChatView = ({ activeChannel, fullProfile }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [projectId, setProjectId] = useState(null);
-  const scrollRef = useRef(null);
+    const scrollRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const handleFileAttach = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !projectId) return;
+
+    try {
+      const res = await api.uploadAttachment(file);
+      await api.sendChatMessage(
+        projectId,
+        fullProfile?.id,
+        fullProfile?.name || 'あなた',
+        '', // メッセージテキストは空
+        { url: res.url, name: res.name, type: res.type }
+      );
+    } catch (err) {
+      console.error('File upload failed:', err);
+      alert('ファイルのアップロードに失敗しました。');
+    }
+  };
 
   const formatTime = (isoString) => {
     return new Date(isoString).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
   };
 
-  const mapDbToUi = (m) => ({
-    id: m.id,
-    sender: m.sender_name,
-    text: m.message_text,
-    time: formatTime(m.created_at),
-    isMe: m.sender_id === fullProfile?.id,
-    isSystem: m.is_system
-  });
+    const mapDbToUi = (m) => {
+    let text = m.message || m.message_text || '';
+    let attachment = null;
+
+    // メッセージ本文から添付ファイルを抽出（フォールバック形式）
+    if (text.includes('[ATTACHMENT:')) {
+      const parts = text.split('[ATTACHMENT:');
+      text = parts[0];
+      try {
+        const jsonStr = parts[1].split(']')[0];
+        attachment = JSON.parse(jsonStr);
+      } catch (e) {
+        console.warn('Failed to parse attachment JSON', e);
+      }
+    }
+
+    // カラム形式の添付ファイルがある場合はそちらを優先
+    if (m.attachment_url) {
+      attachment = {
+        url: m.attachment_url,
+        name: m.attachment_name,
+        type: m.attachment_type
+      };
+    }
+
+    return {
+      id: m.id,
+      sender: m.user_name || m.sender_name,
+      text: text,
+      time: formatTime(m.created_at),
+      isMe: (m.user_id || m.sender_id) === fullProfile?.id,
+      isSystem: m.is_system,
+      attachment: attachment
+    };
+  };
 
   useEffect(() => {
     let subscription = null;
@@ -28,8 +75,20 @@ const ChatView = ({ activeChannel, fullProfile }) => {
     const initChat = async () => {
       try {
         const projs = await api.getProjects();
-        const channelName = activeChannel || 'サントリープレミアムモルツ夏企画';
-        let chatProj = projs.find(p => p.name === channelName);
+        const channelName = activeChannel || 'チャット';
+        
+        // より柔軟な検索（部分一致やID直接指定など）
+        let chatProj = projs.find(p => 
+          p.id === channelName || 
+          p.name === channelName || 
+          p.title === channelName ||
+          (p.metadata && (p.metadata.name === channelName || p.metadata.title === channelName))
+        );
+        
+        // それでも見つからない場合、もっとも新しい案件をデフォルトにする（モック用救済措置）
+        if (!chatProj && projs.length > 0 && !activeChannel) {
+          chatProj = projs[0];
+        }
         
         if (chatProj) {
           setProjectId(chatProj.id);
@@ -68,19 +127,49 @@ const ChatView = ({ activeChannel, fullProfile }) => {
   }, [messages]);
 
   const handleSendMessage = async () => {
-    if (!inputText.trim() || !projectId) return;
+    if (!inputText.trim()) return;
+    if (!projectId) {
+      console.error('No projectId found for chat');
+      alert('チャットの初期化に失敗しました。ページを更新してください。');
+      return;
+    }
 
     const text = inputText;
     setInputText('');
 
     try {
-      await api.sendChatMessage(
+      const success = await api.sendChatMessage(
         projectId, 
         fullProfile?.id, 
         fullProfile?.name || 'あなた', 
         text
       );
-      // Messages will be updated via subscription
+      
+      if (success) {
+        // 楽観的UI更新: 送信直後に画面上のリストにメッセージを追加
+        const newMsg = {
+          id: Math.random().toString(36).substr(2, 9),
+          sender: fullProfile?.name || 'あなた',
+          text: text,
+          time: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+          isMe: true,
+          attachment: null
+        };
+        setMessages(prev => [...prev, newMsg]);
+        
+        // 念のため最新の履歴を再取得（Profile Hack同期用）
+        const updatedMsgs = await api.getChatMessages(projectId);
+        if (updatedMsgs && updatedMsgs.length > 0) {
+           // mapDbToUiを通す
+           const mapped = updatedMsgs.map(m => {
+              const u = mapDbToUi(m);
+              // 自分のメッセージ判定を補強
+              if (m.user_id === fullProfile?.id) u.isMe = true;
+              return u;
+           });
+           setMessages(mapped);
+        }
+      }
     } catch (e) {
       console.error('Send message failed:', e);
       alert('送信に失敗しました。');
@@ -110,7 +199,7 @@ const ChatView = ({ activeChannel, fullProfile }) => {
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
            {[
-             { name: activeChannel || 'サントリープレミアムモルツ夏企画', last: '修正案をお送りしました。', time: '15:30', unread: 2 },
+             { name: activeChannel || 'チャット（案件未選択）', last: '最新のメッセージを確認してください。', time: '現在', unread: 0 },
              { name: 'トヨタ新型SUVプロモーション', last: '移動書をご確認ください。', time: '昨日', unread: 0 }
            ].map((thread, i) => (
              <div key={i} style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #f8fafc', cursor: 'pointer', backgroundColor: i === 0 ? '#f0f9ff' : 'transparent', transition: 'background-color 0.2s' }} className="hover-row">
@@ -134,7 +223,7 @@ const ChatView = ({ activeChannel, fullProfile }) => {
         <header style={{ padding: '1.25rem 2rem', background: 'white', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <IconWrapper size={40} color="#eef2ff" iconColor="#4338ca"><Icons.Chat /></IconWrapper>
-              <h3 style={{ fontWeight: '900', fontSize: '1.1rem', color: '#1e293b' }}>{activeChannel || 'サントリープレミアムモルツ夏企画'}</h3>
+              <h3 style={{ fontWeight: '900', fontSize: '1.1rem', color: '#1e293b' }}>{activeChannel ? activeChannel : 'メッセージ一覧'}</h3>
            </div>
            <button style={{ border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer' }}><Icons.Settings size={20} /></button>
         </header>
@@ -146,7 +235,43 @@ const ChatView = ({ activeChannel, fullProfile }) => {
                maxWidth: m.isSystem ? '100%' : '75%'
              }}>
                {m.isSystem ? (
-                 <div style={{ fontSize: '0.75rem', color: '#64748b', background: '#e2e8f0', padding: '6px 16px', borderRadius: '20px', fontWeight: '700' }}>{m.text}</div>
+                 <div style={{ fontSize: '0.75rem', color: '#64748b', background: '#e2e8f0', padding: '6px 16px', borderRadius: '20px', fontWeight: '700' }}>                      {m.text}
+                      {m.attachment && (
+                        <div style={{ 
+                          marginTop: m.text ? '12px' : '0',
+                          padding: '12px',
+                          backgroundColor: m.isMe ? 'rgba(255,255,255,0.1)' : '#f8fafc',
+                          borderRadius: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px',
+                          border: m.isMe ? '1px solid rgba(255,255,255,0.2)' : '1px solid #e2e8f0'
+                        }}>
+                          <Icons.FileText size={24} color={m.isMe ? 'white' : '#64748b'} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '0.85rem', fontWeight: '700', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {m.attachment.name}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>
+                              {m.attachment.type?.split('/')[1]?.toUpperCase() || 'FILE'}
+                            </div>
+                          </div>
+                          <a 
+                            href={m.attachment.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            style={{ 
+                              color: m.isMe ? 'white' : '#4338ca',
+                              textDecoration: 'none',
+                              display: 'flex',
+                              alignItems: 'center'
+                            }}
+                          >
+                            <Icons.Download size={18} />
+                          </a>
+                        </div>
+                      )}
+                    </div>
                ) : (
                  <>
                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '6px', textAlign: m.isMe ? 'right' : 'left', fontWeight: '700' }}>{m.sender} • {m.time}</div>
@@ -171,7 +296,19 @@ const ChatView = ({ activeChannel, fullProfile }) => {
         {/* Input Area */}
         <div style={{ padding: '1.5rem 2rem', backgroundColor: 'white', borderTop: '1px solid #f1f5f9' }}>
            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', backgroundColor: '#f8fafc', padding: '8px', borderRadius: '16px', border: '1.5px solid #e2e8f0' }}>
-              <button style={{ border: 'none', background: 'none', color: '#94a3b8', padding: '8px', cursor: 'pointer' }}><Icons.Link size={20} /></button>
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                style={{ border: 'none', background: 'none', color: '#94a3b8', padding: '8px', cursor: 'pointer', transition: 'color 0.2s' }} 
+                className="hover-icon"
+              >
+                <Icons.Link size={20} />
+              </button>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                style={{ display: 'none' }} 
+                onChange={handleFileAttach} 
+              />
               <input 
                 value={inputText}
                 onChange={e => setInputText(e.target.value)}

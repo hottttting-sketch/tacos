@@ -215,11 +215,11 @@ function App() {
       case 'update-request': return <UpdateRequestView />;
       case 'revenue-management': return <RevenueView />;
       case 'external-integration':
-        if (currentApp === 'pudding') return <PuddingView activeTab={activeTab} role={role} setActiveTab={setActiveTab} fullProfile={fullProfile} />;
+        if (currentApp === 'pudding') return <PuddingView activeTab={activeTab} role={role} setActiveTab={setActiveTab} fullProfile={fullProfile} onNavigateToChat={(channel) => { setActiveChannel(channel); setActiveTab('chat'); }} />;
         return <ExternalIntegrationView />;
       case 'dashboard':
       default:
-        if (currentApp === 'pudding') return <PuddingView activeTab={activeTab} role={role} setActiveTab={setActiveTab} fullProfile={fullProfile} />;
+        if (currentApp === 'pudding') return <PuddingView activeTab={activeTab} role={role} setActiveTab={setActiveTab} fullProfile={fullProfile} onNavigateToChat={(channel) => { setActiveChannel(channel); setActiveTab('chat'); }} />;
         if (currentApp === 'tempra') return <TempraView />;
         return <DashboardView role={role} fullProfile={fullProfile} />;
     }

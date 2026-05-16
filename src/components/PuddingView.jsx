@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../utils/supabaseClient';
 import { 
   Cloud, Sun, Zap, Search, Plus, Clock, History, Inbox, 
-  Layout, Table, Calendar, Link, Settings, Monitor, 
-  Building, DollarSign, FileText, List, Sliders, MessageSquare, Save, Download, Upload,
+  Layout, Table, Calendar, Link, Settings, Monitor, RefreshCw,
+  Building, DollarSign, FileText, List, Sliders, MessageSquare, Save, Download, Upload, Send,
   Mic, Play, Volume2, Users, Shield, Trash2, Mail, Edit, Check, ChevronRight, Copy, EyeOff
 } from 'lucide-react';
 import ChatView from './ChatView';
 import ManualView from './ManualView';
+import TimeSlotRegView from './TimeSlotRegView';
 import { api } from '../utils/api';
+import * as XLSX from 'xlsx';
 
 const PageView = ({ title, desc, icon: Icon, color, action, children }) => (
   <div className="animate-fade">
@@ -28,23 +30,31 @@ const PageView = ({ title, desc, icon: Icon, color, action, children }) => (
   </div>
 );
 
-const Modal = ({ title, onClose, children, width = '600px' }) => (
-  <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(62,39,35,0.4)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-     <div style={{ backgroundColor: 'white', width, borderRadius: '32px', border: '1.5px solid #F1E4C9', overflow: 'hidden', boxShadow: '0 32px 80px rgba(62,39,35,0.2)' }}>
-        <div style={{ padding: '24px 32px', borderBottom: '1.5px solid #F1E4C9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fcfcfc' }}>
-           <h3 style={{ fontSize: '1.1rem', fontWeight: '950', color: '#8B4513' }}>{title}</h3>
-           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#94a3b8', fontWeight: '100' }}>×</button>
-        </div>
-        <div style={{ padding: '32px', maxHeight: '70vh', overflowY: 'auto' }}>{children}</div>
-        <div style={{ padding: '24px 32px', borderTop: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', display: 'flex', justifyContent: 'flex-end' }}>
-           <button onClick={onClose} style={{ padding: '12px 48px', borderRadius: '16px', backgroundColor: '#3E2723', color: 'white', fontWeight: '950', border: 'none', cursor: 'pointer' }}>設定を完了する</button>
-        </div>
-     </div>
+const FormItem = ({ label, value }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+    <label style={{ fontSize: '11px', fontWeight: '950', color: '#94a3b8', textTransform: 'uppercase' }}>{label}</label>
+    <div style={{ fontSize: '15px', fontWeight: '800', color: '#3E2723' }}>{value || '---'}</div>
   </div>
 );
 
-const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, fullProfile }) => {
-  // App.jsxでは 'station' を使うが、PuddingView内では 'broadcaster' を使用するため正規化
+const Modal = ({ title, onClose, children, width = '600px', hideFooter = false }) => (
+  <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(62,39,35,0.4)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+    <div className="animate-pop" style={{ backgroundColor: 'white', width: '100%', maxWidth: width, borderRadius: '32px', boxShadow: '0 25px 50px -12px rgba(62,39,35,0.25)', overflow: 'hidden', border: '1.5px solid #F1E4C9' }}>
+      <div style={{ padding: '24px 32px', borderBottom: '1.5px solid #F1E4C9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fcfcfd' }}>
+        <h3 style={{ fontSize: '1.25rem', fontWeight: '950', color: '#3E2723', margin: 0 }}>{title}</h3>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#94a3b8', fontWeight: '100' }}>×</button>
+      </div>
+      <div style={{ padding: '32px', maxHeight: '70vh', overflowY: 'auto' }}>{children}</div>
+      {!hideFooter && (
+         <div style={{ padding: '24px 32px', borderTop: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={{ padding: '12px 48px', borderRadius: '16px', backgroundColor: '#3E2723', color: 'white', fontWeight: '950', border: 'none', cursor: 'pointer' }}>閉じる</button>
+         </div>
+      )}
+    </div>
+  </div>
+);
+
+const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, fullProfile, onNavigateToChat }) => {
   const role = rawRole === 'station' ? 'broadcaster' : rawRole;
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [isSpreadsheetLinked, setIsSpreadsheetLinked] = useState(false);
@@ -55,21 +65,18 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   const [isGeneratingNarration, setIsGeneratingNarration] = useState(false);
   const [generatedNarrationFiles, setGeneratedNarrationFiles] = useState([]);
   const [puddingUsers, setPuddingUsers] = useState([
-    { id: 1, name: '堀田 剛心', email: 'hotta@example.jp', org: '本社', role: 'admin', scopes: ['全権限', 'システム管理'], status: 'active' },
-    { id: 2, name: '鈴木 恵介', email: 'suzuki@station.co.jp', org: '系列局', role: 'broadcaster', scopes: ['枠管理', '進行', '考査'], status: 'active' },
-    { id: 3, name: '佐藤 健太', email: 'sato@agency.com', org: '電通', role: 'agency', scopes: ['見積作成', 'プランニング', '発注'], status: 'active' },
-    { id: 4, name: '田中 幸子', email: 'tanaka@station.co.jp', org: '系列局', role: 'broadcaster', scopes: ['番組管理', '素材管理'], status: 'active' },
-    { id: 5, name: '伊藤 裕樹', email: 'ito@broadcaster.jp', org: '大阪支社', role: 'broadcaster', scopes: ['営業推進', 'スポット'], status: 'pending' },
-    { id: 6, name: '山本 太郎', email: 'yamamoto@hakuhodo.jp', org: '博報堂', role: 'agency', scopes: ['見積作成'], status: 'active' },
-    { id: 7, name: '中村 華子', email: 'nakamura@adk.jp', org: 'ADK', role: 'agency', scopes: ['見積作成'], status: 'active' },
-    { id: 8, name: '小林 誠', email: 'kobayashi@daiko.jp', org: '大広', role: 'agency', scopes: ['見積作成'], status: 'active' },
-    { id: 9, name: '加藤 亮', email: 'kato@yomiko.jp', org: '読売広告社', role: 'agency', scopes: ['見積作成'], status: 'active' },
+    { id: 1, name: '堀田 太郎', email: 'hotta@example.jp', org: '日本テレビ', role: 'admin', scopes: ['全権限', 'システム管理'], status: 'active' },
+    { id: 2, name: '鈴木 花子', email: 'suzuki@station.co.jp', org: '放送局A', role: 'broadcaster', scopes: ['局管理', '放送', '編集'], status: 'active' },
+    { id: 3, name: '佐藤 健太', email: 'sato@agency.com', org: '代理店', role: 'agency', scopes: ['案件照会', 'ランディング', '広告'], status: 'active' },
+    { id: 4, name: '田中 次郎', email: 'tanaka@station.co.jp', org: '放送局A', role: 'broadcaster', scopes: ['局管理', '編成管理'], status: 'active' },
+    { id: 5, name: '伊藤 雅美', email: 'ito@broadcaster.jp', org: '大宮テレビ', role: 'broadcaster', scopes: ['編成放送', 'システム'], status: 'pending' },
+    { id: 6, name: '山本 太郎', email: 'yamamoto@hakuhodo.jp', org: '博報堂', role: 'agency', scopes: ['案件照会'], status: 'active' },
+    { id: 7, name: '中村 健', email: 'nakamura@adk.jp', org: 'ADK', role: 'agency', scopes: ['案件照会'], status: 'active' },
+    { id: 8, name: '小林 誠', email: 'kobayashi@daiko.jp', org: '大広', role: 'agency', scopes: ['案件照会'], status: 'active' },
+    { id: 9, name: '加藤 勇', email: 'kato@yomiko.jp', org: '読売広告社', role: 'agency', scopes: ['案件照会'], status: 'active' },
   ]);
-  const [inboxEmails, setInboxEmails] = useState([
-    { id: 1, from: 'dentsu_taro@dentsu.co.jp', subject: '【依頼】春のキャンペーンパブリシティ', date: '2026/04/28 10:15', body: 'サントリー様の春のキャンペーンについて、ストレートパブの枠取りをお願いしたくご連絡いたしました。\n\n期間：5/10〜5/20\n本数：5本\n希望枠：G帯優先', status: 'new' },
-    { id: 2, from: 'hakuhodo_hanako@hakuhodo.co.jp', subject: '素材送付のご案内（トヨタ自動車様）', date: '2026/04/28 14:30', body: '5月放映予定のCM素材をギガファイル便にてお送りいたしました。ご確認をお願いいたします。', status: 'read' },
-    { id: 3, from: 'adk_jiro@adk.jp', subject: '考査依頼：新健康飲料「元気MAX」', date: '2026/04/29 09:00', body: '新商品の考査をお願いいたします。添付の絵コンテをご確認ください。', status: 'new' },
-  ]);
+  const [inboxEmails, setInboxEmails] = useState([]);
+  const [pasteText, setPasteText] = useState('');
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [activeModal, setActiveModal] = useState(null);
   const [requestDateRange, setRequestDateRange] = useState({ start: '', end: '' });
@@ -92,19 +99,92 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   const [isLoading, setIsLoading] = useState(true);
   const [maBaMappings, setMaBaMappings] = useState({});
   const [rewriteDeadline, setRewriteDeadline] = useState('');
- // { maOrg: [baOrg1, baOrg2] }
   const [selectedMaId, setSelectedMaId] = useState(null);
   const [selectedBa, setSelectedBa] = useState('');
   const [selectedBoardProject, setSelectedBoardProject] = useState(null);
+  const [spreadsheetUrl, setSpreadsheetUrl] = useState('');
+  const [spreadsheetSlots, setSpreadsheetSlots] = useState([]);
+  const [columnMappings, setColumnMappings] = useState([
+    { id: 'section', label: 'セクション', column: 'A', sample: '朝帯' },
+    { id: 'programName', label: '番組名', column: 'B', sample: '朝のニュース' },
+    { id: 'broadcastDate', label: '放送日', column: 'C', sample: '2026/05/20' },
+    { id: 'time', label: '開始終了時間', column: 'D', sample: '08:00 - 08:30' },
+    { id: 'duration', label: '尺', column: 'E', sample: '30s' },
+    { id: 'deadline', label: '素材〆切日', column: 'F', sample: '2026/05/15' },
+  ]);
+
+  const handleAddMapping = () => {
+    const newId = `custom_${Date.now()}`;
+    setColumnMappings([...columnMappings, { id: newId, label: '新規項目', column: 'F', sample: '---', isCustom: true }]);
+  };
+
+  const handleUpdateMapping = (id, field, value) => {
+    setColumnMappings(columnMappings.map(m => m.id === id ? { ...m, [field]: value } : m));
+  };
+
+  const handleRemoveMapping = (id) => {
+    setColumnMappings(columnMappings.filter(m => m.id !== id));
+  };
   const [selectedProjectResponses, setSelectedProjectResponses] = useState([]);
   const [selectedBulkProjectIds, setSelectedBulkProjectIds] = useState([]);
-  const [broadcasterResponses, setBroadcasterResponses] = useState({}); // { projectId: [responses] }
+  const [broadcasterResponses, setBroadcasterResponses] = useState({});
   const [bulkChangeName, setBulkChangeName] = useState('');
   const [bulkChangeDateRange, setBulkChangeDateRange] = useState({ start: '', end: '' });
   const [bulkChangeMaterialDeadline, setBulkChangeMaterialDeadline] = useState('');
   const [copySearchQuery, setCopySearchQuery] = useState('');
   const [selectedCopySource, setSelectedCopySource] = useState(null);
   const [dashboardStats, setDashboardStats] = useState({ occupancy: '0%', todayPlans: '0件', notifications: '0件' });
+  const [excelSearchQuery, setExcelSearchQuery] = useState('');
+  const [viewMonth, setViewMonth] = useState(new Date(2026, 4, 1)); 
+  const [formProgramName, setFormProgramName] = useState('');
+  const [formOADate, setFormOADate] = useState('');
+  const [formTimeRange, setFormTimeRange] = useState('');
+  const [formOADuration, setFormOADuration] = useState('30');
+  const [formMaterialDeadlineLimit, setFormMaterialDeadlineLimit] = useState('');
+  const [formRecordingDate, setFormRecordingDate] = useState('');
+  const [formMaterialDest, setFormMaterialDest] = useState('');
+  const [formRevisionDest, setFormRevisionDest] = useState('');
+  const [formPubType, setFormPubType] = useState('');
+
+  const handleExportExcel = () => {
+    let exportData = [];
+    projects.forEach(p => {
+      const stations = p.metadata?.selectedStations || [];
+      stations.forEach(s => {
+        if (role === 'broadcaster') {
+          const myStation = fullProfile?.broadcaster_name || fullProfile?.name;
+          if (s !== myStation) return;
+        }
+
+        const projectResponses = broadcasterResponses[p.id] || [];
+        const stationResp = projectResponses.find(r => r.station_name === s);
+        const response = stationResp?.response_data || p.metadata?.[ `response_${s}`] || {};
+        const respStatus = stationResp?.status || response.status;
+        
+        const statusLabel = 
+          p.status === 'cancelled' ? '案件終了' :
+          (response?.broadcaster_hidden === true || response?.agency_hidden === true) ? '非表示' :
+          (respStatus === 'registered' || respStatus === 'pending') ? '素材受領済み' :
+          (respStatus === 'material_ok' || respStatus === 'rewrites') ? '修正稿受領済み' :
+          (respStatus === 'rewrite_ok' || respStatus === 'recordings') ? '完パケ受領済み' :
+          p.status === 'requesting' ? '放送出力済み' : p.status;
+
+        exportData.push({
+          'スポンサー': p.sponsor_name || p.metadata?.sponsor || '未設定',
+          '案件名': p.name || p.title || '無題の案件',
+          [role === 'agency' ? '放送局' : '代理店']: role === 'agency' ? s : (p.metadata?.agency_name || '代理店'),
+          '放送開始日': p.start_date || '未設定',
+          'ステータス': statusLabel,
+          '備考': p.metadata?.memo || '-'
+        });
+      });
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "案件一覧");
+    XLSX.writeFile(workbook, `Pudding_案件一覧_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
 
   const fetchProjects = async () => {
     setIsLoading(true);
@@ -119,12 +199,10 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       });
       setProjects(parsedData);
       
-      // 放送局UIまたは案件ボード表示中の場合は、station responsesも同期
       if (role === 'broadcaster' || activeTab === 'board') {
         await fetchBroadcasterResponses(parsedData);
       }
       
-      // ダッシュボード統計も更新
       const stats = await api.getDashboardStats();
       setDashboardStats(stats);
     } catch (e) {
@@ -135,11 +213,26 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   };
 
   useEffect(() => {
-    // コンポーネントマウント時に状態を明示的にリセット
     setActiveModal(null);
     setSelectedRequest(null);
     setSelectedBoardProject(null);
     fetchProjects();
+  }, []);
+
+  useEffect(() => {
+    const projectsSubscription = supabase
+      .channel('pudding-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
+        fetchProjects();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'station_responses' }, () => {
+        fetchProjects();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(projectsSubscription);
+    };
   }, []);
 
   const handleUpdateRewriteDeadline = async (item, date) => {
@@ -173,22 +266,39 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   }, [selectedBoardProject]);
 
   useEffect(() => {
-    // 案件複製関連のタブ以外に切り替わった場合、選択状態をリセット
     if (activeTab !== 'copy-project' && activeTab !== 'select-stations') {
       setSelectedCopySource(null);
     }
   }, [activeTab]);
 
-  const [viewMonth, setViewMonth] = useState(new Date(2026, 4, 1)); 
-  const [formProgramName, setFormProgramName] = useState('');
-  const [formOADate, setFormOADate] = useState('');
-  const [formTimeRange, setFormTimeRange] = useState('');
-  const [formOADuration, setFormOADuration] = useState('30');
-  const [formMaterialDeadlineLimit, setFormMaterialDeadlineLimit] = useState('');
-  const [formRecordingDate, setFormRecordingDate] = useState('');
-  const [formMaterialDest, setFormMaterialDest] = useState('');
-  const [formRevisionDest, setFormRevisionDest] = useState('');
-  const [formPubType, setFormPubType] = useState('');
+  useEffect(() => {
+    const fetchInboxEmails = async () => {
+      try {
+        const { data, error } = await supabase.from('pudding_inbox').select('*').order('created_at', { ascending: false });
+        if (error || !data || data.length === 0) {
+          throw new Error('No real emails found, falling back to mock');
+        }
+        setInboxEmails(data.map(d => ({
+          id: d.id,
+          from: d.sender_email || d.from,
+          subject: d.subject,
+          date: new Date(d.created_at).toLocaleString('ja-JP'),
+          body: d.body || d.content,
+          status: d.is_read ? 'read' : 'new'
+        })));
+      } catch (e) {
+        setInboxEmails([
+          { id: 1, from: 'dentsu_taro@dentsu.co.jp', subject: '【案件自動化】春のキャンペーン詳細', date: '2026/04/28 10:15', body: 'スポンサー：株式会社サンプル\n案件名：春の特大キャンペーン\n開始日：2026/05/01\n終了日：2026/05/31\n代理店：電通', status: 'new' },
+          { id: 2, from: 'hakuhodo_hanako@hakuhodo.co.jp', subject: '5月分CM素材の納品完了報告', date: '2026/04/28 14:30', body: '5月開始分のCM素材をメール添付にて送付いたしました。ご確認をお願いします。', status: 'read' },
+          { id: 3, from: 'adk_jiro@adk.jp', subject: '編集室利用・新企画の告知FAX', date: '2026/04/29 09:00', body: '新番組の編集をお願いします。詳細はリンク先を確認してください。', status: 'new' },
+        ]);
+      }
+    };
+    if (activeTab === 'inbox') {
+      fetchInboxEmails();
+    }
+  }, [activeTab]);
+
 
   const SectionTitle = ({ title }) => (
      <h4 style={{ fontSize: '12px', fontWeight: '950', color: '#059669', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -218,17 +328,16 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
       const res = await api.bulkUpdateProjects(selectedBulkProjectIds, updateData);
       if (res.success) {
-        alert(`${selectedBulkProjectIds.length}件の案件を一括更新しました。`);
+        alert(`${selectedBulkProjectIds.length}件の案件を一括変更しました。`);
         setSelectedBulkProjectIds([]);
         setActiveModal(null);
         fetchProjects();
-        console.log('Bulk update success');
       } else {
-        alert('一部または全ての更新に失敗しました。');
+        alert('一部または全ての変更に失敗しました。');
       }
     } catch (err) {
       console.error(err);
-      alert('更新に失敗しました。');
+      alert('変更に失敗しました。');
     } finally {
       setIsSubmitting(false);
     }
@@ -257,9 +366,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
   const handleCopyProject = (sourceProject) => {
     setSelectedCopySource(sourceProject);
-    // フォームに値をセット
     setSponsorName(sourceProject.sponsor_name || '');
-    setProjectName(`【複製】${sourceProject.name}`);
+    setProjectName(`コピー: ${sourceProject.name}`);
     setRequestDateRange({ 
       start: sourceProject.start_date || '', 
       end: sourceProject.end_date || '' 
@@ -282,7 +390,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const user = session?.user;
       const profiles = await api.getProfilesByRole('broadcaster');
       const fullProfile = Array.isArray(profiles) ? profiles.find(u => u.id === user?.id) : null;
-      const stationName = fullProfile?.broadcaster_name || fullProfile?.name || '系列局A';
+      const stationName = fullProfile?.broadcaster_name || fullProfile?.name || '放送局A';
       
       const responseData = {
         programName: formProgramName,
@@ -298,14 +406,13 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         last_updated: new Date().toISOString()
       };
 
-      // プロジェクトのメタデータも更新（一覧表示・フィルタリング用）
       const updatedMetadata = {
         ...(selectedRequest.metadata || {}),
         oa_date: formOADate,
         time_range: formTimeRange,
         duration: formOADuration,
         material_deadline: formMaterialDeadlineLimit,
-        recording_date: formRecordingDate, // 収録日を標準化
+        recording_date: formRecordingDate,
         program_name: formProgramName
       };
 
@@ -313,7 +420,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const success = await api.saveStationResponse(selectedRequest.id, stationName, responseData);
       
       if (success) {
-        alert('枠情報を更新しました。');
+        alert('詳細情報を更新しました。');
         setActiveModal(null);
         await fetchProjects();
       }
@@ -335,7 +442,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const profiles = await api.getProfilesByRole('broadcaster');
       const fullProfile = Array.isArray(profiles) ? profiles.find(u => u.id === user?.id) : null;
       
-      let stationName = fullProfile?.broadcaster_name || fullProfile?.name || '系列局A'; 
+      let stationName = fullProfile?.broadcaster_name || fullProfile?.name || '放送局A'; 
       
       const requestedStations = selectedRequest.metadata?.selectedStations || [];
       if (requestedStations.length > 0 && !requestedStations.includes(stationName)) {
@@ -356,7 +463,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         last_updated: new Date().toISOString()
       };
 
-      // プロジェクトのメタデータにもサマリーを保存（一覧表示用）
       if (isFinal) {
         await api.updateProject(selectedRequest.id, {
           metadata: {
@@ -371,7 +477,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         });
       }
 
-      // 枠出し（isFinal）時に、同案件内で既にアップロード済みの素材があれば自動反映する
       if (isFinal) {
         const allRes = await api.getStationResponses(selectedRequest.id);
         const source = allRes.find(r => r.response_data?.has_material);
@@ -380,7 +485,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
           responseData.material_path = source.response_data.material_path;
           responseData.material_paths = source.response_data.material_paths;
           responseData.material_uploaded_at = source.response_data.material_uploaded_at;
-          // 送信済みフラグ(material_sent)はコピーしない（代理店が確認して送信するため）
         }
       }
 
@@ -389,7 +493,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       if (success) {
         if (isFinal) {
           await api.updateProject(selectedRequest.id, { status: 'materials' });
-          alert('枠情報を送信しました。');
+          alert('詳細情報を送信しました。');
           setSelectedRequest(null);
           fetchProjects();
         } else {
@@ -437,7 +541,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         }
         
         const newPaths = Array.from(new Set([...existingPaths, ...paths]));
-        // パスに対応する名前を維持するための簡易マッピング（実際はもっと厳密にするべきだが、今回は追加分を連結）
         const newNames = [...existingNames, ...originalNames].slice(0, newPaths.length);
 
         console.log('Saving station response:', { projectId, stationName, has_material: true });
@@ -452,7 +555,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         });
         
         if (success) {
-          // 他の局（素材待ち状態かつ未アップロード）にも自動反映
           const allRes = await api.getStationResponses(projectId);
           const others = allRes.filter(r => r.station_name !== stationName && r.status === 'registered' && !r.response_data?.has_material);
           
@@ -470,7 +572,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
             }
           }
 
-          alert(`${stationName} ${others.length > 0 ? `および他${others.length}局` : ''} の素材（${files.length}件）をアップロードしました。送信ボタンで確定してください。`);
+          alert(`${stationName} ${others.length > 0 ? `および他${others.length}件` : ''} の素材（${files.length}件）をアップロードしました。送信ボタンで確定してください。`);
           fetchProjects();
           
           if (role === 'broadcaster' || activeTab === 'board') {
@@ -531,7 +633,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const success = await api.saveStationResponse(projectId, stationName, updateData);
       
       if (success) {
-        // 他の局にも同期（素材待ちかつ未送信の場合）
         const allRes = await api.getStationResponses(projectId);
         const others = allRes.filter(r => r.station_name !== stationName && r.status === 'registered');
         for (const other of others) {
@@ -544,16 +645,13 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
           });
         }
 
-        // 全体の状態を更新
         await fetchProjects();
         
-        // 代理店ボードの場合の追加更新
         if (selectedBoardProject) {
           const res = await api.getStationResponses(selectedBoardProject.id);
           setSelectedProjectResponses(res || []);
         }
         
-        // 状態を更新
         if (role === 'broadcaster' || activeTab === 'board') {
            const res = await api.getStationResponses(projectId);
            setBroadcasterResponses(prev => ({ ...prev, [projectId]: res }));
@@ -579,7 +677,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
   const handleMaterialUpload = async (projectId, stationName) => {
     if (isSubmitting) {
-      alert('現在別の処理を実行中です。しばらく待ってから再度お試しください。');
+      alert('現在他の作業を処理中です。終わるまでお待ちください。');
       return; 
     }
     setIsSubmitting(true);
@@ -595,14 +693,14 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       });
       
       if (success) {
-        alert(`${stationName} への素材送信が完了しました。放送局側の「素材DL」が活性化されます。`);
+        alert(`${stationName} への素材送信が完了しました。放送局側の「素材URL」が更新されます。`);
         fetchProjects();
         if (selectedBoardProject) {
           const res = await api.getStationResponses(selectedBoardProject.id);
           setSelectedProjectResponses(res || []);
         }
       } else {
-        alert(`${stationName} への素材送信に失敗しました。もう一度お試しください。`);
+        alert(`${stationName} への素材送信に失敗しました。もう一度お待ちください。`);
       }
     } catch (e) {
       console.error('[送信] Failed:', e);
@@ -619,7 +717,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const paths = current.response_data?.material_paths || (current.response_data?.material_path ? [current.response_data.material_path] : []);
       
       if (paths.length === 0) {
-        alert('素材ファイルが見つかりません。');
+        alert('素材ファイルが見当たりません。');
         return;
       }
 
@@ -636,7 +734,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
           document.body.removeChild(a);
           await new Promise(r => setTimeout(r, 500));
         } else {
-          alert('素材ファイルの取得に失敗しました。ファイルが存在しないか、ストレージの設定に問題がある可能性があります。');
+          alert('素材ファイルの取得に失敗しました。ファイルが存在しないか、設定に問題がある可能性があります。');
           return;
         }
       }
@@ -684,7 +782,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         });
         
         if (success) {
-          alert(`${stationName} のリライト原稿をアップロードしました。`);
+          alert(`${stationName} の修正稿送信をアップロードしました。`);
           fetchProjects();
           if (selectedBoardProject) {
             const res = await api.getStationResponses(selectedBoardProject.id);
@@ -693,7 +791,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         }
       } catch (err) {
         console.error('Failed to upload rewrite:', err);
-        alert('リライト原稿のアップロードに失敗しました。');
+        alert('修正稿送信のアップロードに失敗しました。');
       } finally {
         setIsSubmitting(false);
         if (document.body.contains(input)) {
@@ -705,7 +803,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   };
 
   const handleClearRewriteDeadline = async (projectId, stationName) => {
-    if (!window.confirm('修正〆切設定を取り消しますか？')) return;
+    if (!window.confirm('修正稿の期日設定を削除しますか？')) return;
     try {
       const resp = await api.getStationResponses(projectId);
       const current = resp.find(r => r.station_name === stationName) || {};
@@ -727,7 +825,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   };
 
   const handleDeleteRewriteFile = async (projectId, stationName) => {
-    if (!window.confirm('アップロード済みのリライト原稿を削除しますか？')) return;
+    if (!window.confirm('アップロード済みの修正稿を削除しますか？')) return;
     try {
       const resp = await api.getStationResponses(projectId);
       const current = resp.find(r => r.station_name === stationName) || {};
@@ -757,7 +855,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const current = resp.find(r => r.station_name === stationName) || {};
       const path = current.response_data?.rewrite_path;
       const originalName = current.response_data?.rewrite_filename;
-      if (!path) { alert('リライト原稿が見つかりません。'); return; }
+      if (!path) { alert('修正稿が見当たりません。'); return; }
       const url = await api.getRewriteUrl(path);
       if (url) {
         const a = document.createElement('a');
@@ -766,10 +864,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        // ブラウザがダウンロードを開始する時間を確保してからURLを開放
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } else {
-        alert('リライト原稿のダウンロードに失敗しました。ファイルが削除されたか、ストレージにアクセスできない可能性があります。');
+        alert('修正稿のダウンロードに失敗しました。ファイルが削除されたか、アクセスできない可能性があります。');
       }
     } catch (err) { alert('ダウンロードに失敗しました。'); }
   };
@@ -780,7 +877,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const current = resp.find(r => r.station_name === stationName) || {};
       const path = current.response_data?.revised_path;
       const originalName = current.response_data?.revised_filename;
-      if (!path) { alert('修正稿が見つかりません。'); return; }
+      if (!path) { alert('修正稿が見当たりません。'); return; }
       const url = await api.getRewriteUrl(path, 'revised');
       if (url) {
         const a = document.createElement('a');
@@ -789,10 +886,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        // ブラウザがダウンロードを開始する時間を確保してからURLを開放
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } else {
-        alert('修正稿のダウンロードに失敗しました。ストレージ設定を確認してください。');
+        alert('修正稿のダウンロードに失敗しました。設定を確認してください。');
       }
     } catch (err) { alert('ダウンロードに失敗しました。'); }
   };
@@ -862,7 +958,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       });
       
       if (success) {
-        alert(`${stationName} のリライト原稿を送信しました。代理店側でダウンロード可能になります。`);
+        alert(`${stationName} の修正稿送信を送信しました。制作側でダウンロード可能になります。`);
         fetchProjects();
         if (selectedBoardProject) {
           const res = await api.getStationResponses(selectedBoardProject.id);
@@ -886,7 +982,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       
       const success = await api.saveStationResponse(projectId, stationName, {
         ...(current.response_data || {}),
-        status: 'rewrites', // 同録待ちに移行せず、リライト待ちに留める
+        status: 'rewrites',
         revised_sent: true,
         revised_sent_at: new Date().toISOString()
       });
@@ -921,7 +1017,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       });
       
       if (success) {
-        alert('修正なしとして処理しました。同録待ちに移動します。');
+        alert('修正なしとして処理しました。完パケ工程へ移行します。');
         fetchProjects();
         if (selectedBoardProject) {
           const res = await api.getStationResponses(selectedBoardProject.id);
@@ -957,7 +1053,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         
         const success = await api.saveStationResponse(projectId, stationName, {
           ...(current.response_data || {}),
-          status: current.status, // ステータスを維持
+          status: current.status,
           has_recording: true,
           recording_path: path,
           recording_filename: file.name,
@@ -965,7 +1061,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         });
         
         if (success) {
-          alert(`${stationName} の同録をアップロードしました。`);
+          alert(`${stationName} の完パケをアップロードしました。`);
           fetchProjects();
           if (selectedBoardProject) {
             const res = await api.getStationResponses(selectedBoardProject.id);
@@ -974,7 +1070,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         }
       } catch (err) {
         console.error('Failed to upload recording:', err);
-        alert('同録のアップロードに失敗しました。');
+        alert('完パケのアップロードに失敗しました。');
       } finally {
         setIsSubmitting(false);
         if (document.body.contains(input)) {
@@ -993,7 +1089,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const originalName = current.response_data?.recording_filename;
       
       if (!path) {
-        alert('同録ファイルが見つかりません。');
+        alert('完パケファイルが見当たりません。');
         return;
       }
 
@@ -1001,23 +1097,19 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       if (url) {
         const a = document.createElement('a');
         a.href = url;
-        // オリジナル名があればそれを、なければパスから推測（プレフィックスを除去）
         const fileName = originalName || path.split('/').pop().replace(/^rec_.*?_\d+_/, '');
         a.download = fileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        alert(`${stationName} の同録ファイルをダウンロードしました。`);
-        // ブラウザがダウンロードを開始する時間を確保してからURLを開放
+        alert(`${stationName} の完パケファイルをダウンロードしました。`);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         
-        // ダウンロード済みフラグを保存（代理店側での管理用）
         await api.saveStationResponse(projectId, stationName, {
           ...(current.response_data || {}),
           recording_downloaded: true
         });
         
-        // 案件個別表示中の場合はレスポンス情報を再取得してUIを更新
         if (selectedBoardProject && (selectedBoardProject.id === projectId)) {
           const res = await api.getStationResponses(projectId);
           setSelectedProjectResponses(res || []);
@@ -1027,7 +1119,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       }
     } catch (err) {
       console.error('Failed to download recording:', err);
-      alert('同録のダウンロードに失敗しました。');
+      alert('完パケのダウンロードに失敗しました。');
     }
   };
 
@@ -1039,7 +1131,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
     }
     
     if (selectedStations.length === 0) {
-      if (!confirm('依頼局が選択されていません。このまま作成しますか？（後から追加も可能です）')) {
+      if (!confirm('放送局が選択されていません。このまま作成しますか？（後から追加も可能です）')) {
         return;
       }
     }
@@ -1067,13 +1159,14 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
             checkStraightPub: selectedPubTypes.some(t => t.includes('ストレート')),
             checkInterviewPub: selectedPubTypes.some(t => t.includes('取材')),
             checkTalkPub: selectedPubTypes.some(t => t.includes('対談')),
-            checkPrePub: selectedPubTypes.some(t => t.includes('プレゼン')),
+            checkPrePub: selectedPubTypes.some(t => t.includes('プレゼント')),
             checkProgramIntegration: false
           },
           rewrite_reviewer: rewriteReviewer,
           recording_reviewer: recordingReviewer,
           selectedStations: selectedStations,
-          created_by: userId
+          created_by: userId,
+          agency_name: fullProfile?.org || fullProfile?.company_name || '代理店'
         }
       };
 
@@ -1081,9 +1174,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       const success = await api.createProject(projectData);
 
       if (success) {
-        alert('案件を作成しました。' + (selectedStations.length > 0 ? `\n依頼局: ${selectedStations.join(', ')}` : ''));
+        alert('案件を作成しました。' + (selectedStations.length > 0 ? `\n放送局: ${selectedStations.join(', ')}` : ''));
         
-        // フォームのリセット
         setProjectName('');
         setSponsorName('');
         setSelectedBa('');
@@ -1094,10 +1186,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         setRewriteReviewer('');
         setRecordingReviewer('');
         
-        // 画面遷移
         setActiveTab('dashboard');
         
-        // データ更新
         setTimeout(() => {
           fetchProjects();
         }, 300);
@@ -1117,7 +1207,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
     setMaBaMappings(mappings);
   };
 
-  // 放送局UIの場合、全案件のstation responsesを取得してキャッシュする
   const fetchBroadcasterResponses = async (projectList) => {
     if ((role !== 'broadcaster' && activeTab !== 'board') || !projectList || projectList.length === 0) return;
     const responseMap = {};
@@ -1149,7 +1238,6 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       })
       .subscribe();
 
-    // station_responsesテーブルの変更も監視（放送局UIの素材DL活性化の即時反映のため）
     const responseChannel = supabase
       .channel('pudding_station_responses_changes')
       .on('postgres_changes', {
@@ -1157,12 +1245,10 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         schema: 'public',
         table: 'station_responses'
       }, () => {
-        // responsesが更新されたらprojectsと一緒に再取得
         fetchProjects();
       })
       .subscribe();
 
-    // profilesテーブルの変更も監視（Profile Hackによる同期のため）
     const profilesChannel = supabase
       .channel('pudding_profiles_changes')
       .on('postgres_changes', {
@@ -1186,7 +1272,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       if (selectedRequest && role === 'broadcaster') {
         try {
           const responses = await api.getStationResponses(selectedRequest.id);
-          const stationName = fullProfile?.broadcaster_name || fullProfile?.name || '系列局A';
+          const stationName = fullProfile?.broadcaster_name || fullProfile?.name || '放送局A';
           const myResponse = responses.find(r => r.station_name === stationName);
           if (myResponse && myResponse.response_data) {
             const m = myResponse.response_data;
@@ -1227,16 +1313,16 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   
   const renderDashboard = () => {
     const cards = [
-      { label: '現在のスポット稼働率', value: dashboardStats.occupancy, icon: Zap, color: '#ffd93d' },
-      { label: '本日公開のプラン', value: dashboardStats.todayPlans, icon: Sun, color: '#fb923c' },
-      { label: '空き枠通知', value: dashboardStats.notifications, icon: Cloud, color: '#38bdf8' }
+      { label: '現在の稼働案件', value: dashboardStats.occupancy, icon: Zap, color: '#ffd93d' },
+      { label: '本日開催のプラン', value: dashboardStats.todayPlans, icon: Sun, color: '#fb923c' },
+      { label: 'お知らせ通知', value: dashboardStats.notifications, icon: Cloud, color: '#38bdf8' }
     ];
 
     return (
       <div className="animate-fade">
         <header style={{ marginBottom: '2rem' }}>
-          <h2 style={{ fontSize: '1.75rem', fontWeight: '900', color: '#8B4513' }}>📊 ダッシュボード</h2>
-          <p style={{ color: '#64748b' }}>スポット広告の現状状況と提案プランを確認できます。</p>
+          <h2 style={{ fontSize: '1.75rem', fontWeight: '900', color: '#8B4513' }}>Pudding ダッシュボード</h2>
+          <p style={{ color: '#64748b' }}>稼働案件の全般的な現状と最新のプランをご確認いただけます。</p>
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
@@ -1256,22 +1342,22 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
         <div style={{ backgroundColor: 'white', borderRadius: '24px', padding: '2rem', boxShadow: '0 10px 30px rgba(139,69,19,0.05)', border: '1.5px solid #F1E4C9' }}>
           <h3 style={{ fontSize: '1.25rem', fontWeight: '900', marginBottom: '1.5rem', color: '#3E2723', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Search size={22} color="#FFD93D" /> パブリシティ案件一覧
+            <Search size={22} color="#FFD93D" /> パブ案件一覧
           </h3>
           <div style={{ display: 'grid', gap: '1rem' }}>
             {isLoading ? (
               <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>データを読み込み中...</div>
             ) : projects.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>案件がありません。</div>
+              <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>案件はありません。</div>
             ) : projects.map((item, i) => {
               const statusColors = {
                 draft: { label: '下書き', color: '#94a3b8' },
-                requesting: { label: '依頼中', color: '#f59e0b' },
-                slots: { label: '枠登録中', color: '#3b82f6' },
-                materials: { label: '素材待ち', color: '#8b5cf6' },
-                rewrites: { label: 'リライト中', color: '#ec4899' },
-                recordings: { label: '同録待ち', color: '#10b981' },
-                completed: { label: '完了', color: '#22c55e' },
+                requesting: { label: '打診中', color: '#f59e0b' },
+                slots: { label: '放送登録中', color: '#3b82f6' },
+                materials: { label: '素材受領済み', color: '#8b5cf6' },
+                rewrites: { label: '修正稿中', color: '#ec4899' },
+                recordings: { label: '完パケ受領済み', color: '#10b981' },
+                completed: { label: '非表示', color: '#22c55e' },
                 cancelled: { label: '取消', color: '#ef4444' }
               };
               const statusInfo = statusColors[item.status] || { label: item.status, color: '#64748b' };
@@ -1319,25 +1405,25 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       case 'dashboard':
         return renderDashboard();
 
-            case 'new-request': {
+      case 'new-request': {
         return (
-          <PageView title="新規案件打診" desc="新しい案件情報を入力して放送局へ打診します。" icon={Plus} color="#059669">
+          <PageView title="新規案件依頼" desc="新しい案件情報を入力して放送局へ依頼を出します。" icon={Plus} color="#059669">
              <div style={{ backgroundColor: 'white', padding: '48px', borderRadius: '32px', border: '1.5px solid #F1E4C9', boxShadow: '0 20px 50px rgba(62,39,35,0.05)' }}>
                 <div style={{ display: 'grid', gap: '28px' }}>
                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                       <div className="input-group">
                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>スポンサー</label>
-                         <input type="text" value={sponsorName} onChange={(e) => setSponsorName(e.target.value)} placeholder="例：サントリー株式会社" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', outline: 'none' }} />
+                         <input type="text" value={sponsorName} onChange={(e) => setSponsorName(e.target.value)} placeholder="例：株式会社〇〇" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', outline: 'none' }} />
                       </div>
                       <div className="input-group">
-                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>BA (担当者)</label>
+                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>BA (担当部署)</label>
                          <select 
                            value={selectedBa}
                            onChange={(e) => setSelectedBa(e.target.value)}
                            style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', outline: 'none' }}
                          >
                             <option value="">BAを選択してください</option>
-                            {(maBaMappings['本社'] || []).map(baOrg => <option key={baOrg} value={baOrg}>{baOrg}</option>)}
+                            {(maBaMappings['日本テレビ'] || []).map(baOrg => <option key={baOrg} value={baOrg}>{baOrg}</option>)}
                          </select>
                       </div>
                    </div>
@@ -1373,28 +1459,28 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                           </div>
                        </div>
                        <div className="input-group">
-                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '12px' }}>素材搬入開始日</label>
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '12px' }}>素材搬入期限</label>
                           <input type="date" value={materialDeadline} onChange={(e) => setMaterialDeadline(e.target.value)} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', outline: 'none' }} />
                        </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                        <div className="input-group">
-                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>リライト共有者</label>
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>修正稿審査担当</label>
                           <div onClick={() => setActiveModal('reviewer-rewrite')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                             <Users size={18} /> <span>{rewriteReviewer || '担当者を選択'}</span>
+                             <Users size={18} /> <span>{rewriteReviewer || '担当を選択'}</span>
                           </div>
                        </div>
                        <div className="input-group">
-                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>同録共有者</label>
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>完パケ審査担当</label>
                           <div onClick={() => setActiveModal('reviewer-recording')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                             <Users size={18} /> <span>{recordingReviewer || '担当者を選択'}</span>
+                             <Users size={18} /> <span>{recordingReviewer || '担当を選択'}</span>
                           </div>
                        </div>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', padding: '32px 0 0 0', borderTop: '1.5px solid #F1E4C9', marginTop: '16px' }}>
                        <button onClick={() => { setProjectName(''); setSponsorName(''); setActiveTab('dashboard'); }} style={{ padding: '14px 40px', borderRadius: '16px', fontWeight: '950', backgroundColor: '#f8fafc', color: '#64748b', border: '1.5px solid #e2e8f0', cursor: 'pointer' }}>キャンセル</button>
-                       <button style={{ padding: '14px 40px', borderRadius: '16px', fontWeight: '950', backgroundColor: '#FFFBE6', color: '#8B4513', border: '2.5px solid #FFD93D', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }} onClick={() => setActiveTab('select-stations')}><Monitor size={18} /> 依頼局を選択する</button>
-                       <button style={{ padding: '14px 64px', borderRadius: '16px', fontWeight: '950', backgroundColor: isSubmitting ? '#94a3b8' : '#3E2723', color: 'white', border: 'none', cursor: isSubmitting ? 'wait' : 'pointer', boxShadow: '0 8px 25px rgba(62,39,35,0.2)' }} onClick={handleCreateProject} disabled={isSubmitting}>{isSubmitting ? '送信中...' : '打診を開始する'}</button>
+                       <button style={{ padding: '14px 40px', borderRadius: '16px', fontWeight: '950', backgroundColor: '#FFFBE6', color: '#8B4513', border: '2.5px solid #FFD93D', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }} onClick={() => setActiveTab('select-stations')}><Monitor size={18} /> 放送局を選択</button>
+                       <button style={{ padding: '14px 64px', borderRadius: '16px', fontWeight: '950', backgroundColor: isSubmitting ? '#94a3b8' : '#3E2723', color: 'white', border: 'none', cursor: isSubmitting ? 'wait' : 'pointer', boxShadow: '0 8px 25px rgba(62,39,35,0.2)' }} onClick={handleCreateProject} disabled={isSubmitting}>{isSubmitting ? '送信中...' : '依頼を公開する'}</button>
                     </div>
                  </div>
               </div>
@@ -1404,7 +1490,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
       case 'users': {
         return (
-          <PageView title="ユーザー・アカウント管理" desc="システム利用権限と業務範囲を設定します。" icon={Users} color="#1e293b">
+          <PageView title="ユーザー管理" desc="ユーザー権限とロール設定を行います。" icon={Users} color="#1e293b">
              <div style={{ display: 'grid', gap: '24px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                    <div style={{ display: 'flex', gap: '8px', padding: '6px', backgroundColor: '#f1f5f9', borderRadius: '16px' }}>
@@ -1412,7 +1498,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                          <button key={t} onClick={() => setUserFilterRole(t)} style={{ padding: '10px 24px', borderRadius: '12px', border: 'none', backgroundColor: userFilterRole === t ? 'white' : 'transparent', fontWeight: '950', cursor: 'pointer' }}>{t === 'sponsor' ? 'スポンサー' : t === 'agency' ? '代理店' : '放送局'}</button>
                       ))}
                    </div>
-                   <button style={{ padding: '12px 24px', borderRadius: '16px', backgroundColor: '#3E2723', color: 'white', fontWeight: '950', border: 'none' }}><Plus size={20} /> 新規ユーザー招待</button>
+                   <button style={{ padding: '12px 24px', borderRadius: '16px', backgroundColor: '#3E2723', color: 'white', fontWeight: '950', border: 'none' }}><Plus size={20} /> 新規ユーザー作成</button>
                 </div>
                 <div style={{ backgroundColor: 'white', borderRadius: '32px', border: '1.5px solid #F1E4C9', overflow: 'hidden' }}>
                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1421,7 +1507,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                             <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950' }}>ユーザー情報</th>
                             <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950' }}>所属</th>
                             <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950' }}>状態</th>
-                            <th style={{ padding: '20px 32px', textAlign: 'center', fontWeight: '950' }}>操作</th>
+                            <th style={{ padding: '20px 32px', textAlign: 'center', fontWeight: '950' }}>削除</th>
                          </tr>
                       </thead>
                       <tbody>
@@ -1444,21 +1530,21 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         );
       }
 
-case 'board': {
+      case 'board': {
         if (role === 'agency' && !selectedBoardProject) {
            return (
-              <PageView title="案件ボード" desc="進行を確認したい案件を選択してください。" icon={Layout} color="#f59e0b">
+              <PageView title="案件ボード" desc="放送を確認したい案件を選択してください。" icon={Layout} color="#f59e0b">
                  <div style={{ display: 'grid', gap: '0.75rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', padding: '0 2rem', marginBottom: '0.5rem', color: '#94a3b8', fontSize: '12px', fontWeight: '950', gap: '2rem' }}>
                        <div style={{ flex: '1.2', minWidth: '150px' }}>スポンサー</div>
                        <div style={{ flex: '1.8', minWidth: '200px' }}>案件名</div>
-                       <div style={{ flex: '1.5', minWidth: '180px' }}>依頼期間</div>
-                       <div style={{ flex: '1', minWidth: '120px' }}>素材搬入開始日</div>
-                       <div style={{ textAlign: 'right', minWidth: '80px' }}>依頼局数</div>
+                       <div style={{ flex: '1.5', minWidth: '180px' }}>放送期間</div>
+                       <div style={{ flex: '1', minWidth: '120px' }}>素材搬入期限</div>
+                       <div style={{ textAlign: 'right', minWidth: '80px' }}>放送局数</div>
                        <div style={{ width: '24px' }}></div>
                     </div>
                     {projects.length === 0 ? (
-                       <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', backgroundColor: 'white', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>案件がありません。</div>
+                       <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', backgroundColor: 'white', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>案件はありません。</div>
                     ) : projects.filter(p => p.status !== 'cancelled').map((p, i) => (
                        <div key={p.id} onClick={() => setSelectedBoardProject(p)} style={{ display: 'flex', alignItems: 'center', padding: '1.25rem 2rem', backgroundColor: 'white', borderRadius: '20px', border: '1.5px solid #F1E4C9', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', gap: '2rem' }} onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = '#FFD93D'; }} onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = '#F1E4C9'; }}>
                           <div style={{ flex: '1.2', minWidth: '150px' }}><div style={{ fontSize: '13px', color: '#8B4513', fontWeight: '800' }}>{p.sponsor_name}</div></div>
@@ -1483,6 +1569,8 @@ case 'board': {
                 if (resp.status === 'registered' || resp.status === 'pending') currentStatus = 'materials';
                 else if (resp.status === 'material_ok' || resp.status === 'rewrites') currentStatus = 'rewrites';
                 else if (resp.status === 'rewrite_ok' || resp.status === 'recordings') currentStatus = 'recordings';
+                
+                if (resp.response_data?.agency_hidden === true) currentStatus = 'completed';
              }
                return { 
                  id: `${selectedBoardProject.id}-${s}`, 
@@ -1499,7 +1587,7 @@ case 'board': {
                  revised_sent: resp?.response_data?.revised_sent || false,
                  revised_filename: resp?.response_data?.revised_filename || null,
                  has_recording: resp?.response_data?.has_recording || false,
-                 recording_filename: resp?.response_data?.recording_filename || null,
+                 recording_filename: resp?.response_data?.recording_filename || false,
                  recording_downloaded: resp?.response_data?.recording_downloaded || false,
                  has_rewrite: resp?.response_data?.has_rewrite || false,
                  rewrite_sent: resp?.response_data?.rewrite_sent || false,
@@ -1510,7 +1598,7 @@ case 'board': {
         } else {
            boardItems = projects.filter(p => p.status !== 'cancelled').map(p => {
               const requestedStations = p.metadata?.selectedStations || [];
-              let stationName = fullProfile?.broadcaster_name || fullProfile?.name || '系列局A';
+              let stationName = fullProfile?.broadcaster_name || fullProfile?.name || '放送局A';
               
               if (requestedStations.length > 0 && !requestedStations.includes(stationName)) {
                  stationName = requestedStations[0];
@@ -1520,39 +1608,41 @@ case 'board': {
               const stationResp = projectResponses.find(r => r.station_name === stationName);
               const response = stationResp?.response_data || p.metadata?.[`response_${stationName}`] || {};
               const respStatus = stationResp?.status || response.status;
+              const isHidden = response?.broadcaster_hidden === true || response?.agency_hidden === true;
               return { 
                  ...p, 
                  sponsor: p.sponsor_name || p.metadata?.sponsor || '未設定', 
                  station: stationName, 
-                 status: (respStatus === 'registered' || respStatus === 'pending') ? 'materials' :
+                 status: isHidden ? 'completed' :
+                         (respStatus === 'registered' || respStatus === 'pending') ? 'materials' :
                          (respStatus === 'material_ok' || respStatus === 'rewrites') ? 'rewrites' :
-                         respStatus === 'rewrite_ok' ? 'recordings' :
+                         (respStatus === 'rewrite_ok' || respStatus === 'recordings') ? 'recordings' :
                          p.status === 'requesting' ? 'slots' : p.status,
-                 has_material: response.has_material || false,
-                 material_sent: response.material_sent || false,
-                 material_paths: response.material_paths || [],
-                 material_names: response.material_names || [],
-                 has_revised_material: response.has_revised_material || false,
-                 revised_sent: response.revised_sent || false,
-                 revised_filename: response.revised_filename || null,
-                 has_recording: response.has_recording || false,
-                 recording_filename: response.recording_filename || null,
-                 recording_downloaded: response.recording_downloaded || false,
-                 has_rewrite: response.has_rewrite || false,
-                 rewrite_sent: response.rewrite_sent || false,
-                 rewrite_filename: response.rewrite_filename || null,
-                 rewrite_deadline: response.rewrite_deadline || null
+                  has_material: response.has_material || false,
+                  material_sent: response.material_sent || false,
+                  material_paths: response.material_paths || [],
+                  material_names: response.material_names || [],
+                  has_revised_material: response.has_revised_material || false,
+                  revised_sent: response.revised_sent || false,
+                  revised_filename: response.revised_filename || null,
+                  has_recording: response.has_recording || false,
+                  recording_filename: response.recording_filename || null,
+                  recording_downloaded: response.recording_downloaded || false,
+                  has_rewrite: response.has_rewrite || false,
+                  rewrite_sent: response.rewrite_sent || false,
+                  rewrite_filename: response.rewrite_filename || null,
+                  rewrite_deadline: response.rewrite_deadline || null
               };
            });
         }
         const boardColumns = [
-           { id: 'slots', title: '枠出し待ち', color: '#64748b' },
-           { id: 'materials', title: '素材待ち', color: '#3b82f6' },
-           { id: 'rewrites', title: 'リライト待ち', color: '#f59e0b' },
-           { id: 'recordings', title: '同録待ち', color: '#10b981' },
+           { id: 'slots', title: '枠打診済', color: '#64748b' },
+           { id: 'materials', title: '素材受領済み', color: '#3b82f6' },
+           { id: 'rewrites', title: '修正稿中', color: '#f59e0b' },
+           { id: 'recordings', title: '完パケ受領済み', color: '#10b981' },
         ].map(col => ({ ...col, items: boardItems.filter(item => item.status === col.id) }));
         return (
-          <PageView title={selectedBoardProject ? `推進管理: ${selectedBoardProject.name}` : "案件ボード"} desc={selectedBoardProject ? "放送局ごとの推進管理を調整します。" : "案件の調整推進を整理します。"} icon={Layout} color="#f59e0b" action={selectedBoardProject && (<button onClick={() => setSelectedBoardProject(null)} style={{ padding: '8px 20px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: 'white', fontWeight: '900', cursor: 'pointer' }}>案件一覧に戻る</button>)}>
+          <PageView title={selectedBoardProject ? `確認状況: ${selectedBoardProject.name}` : "案件ボード"} desc={selectedBoardProject ? "放送局ごとの確認状況を管理します。" : "案件の管理状況をボードで確認します。"} icon={Layout} color="#f59e0b" action={selectedBoardProject && (<button onClick={() => setSelectedBoardProject(null)} style={{ padding: '8px 20px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: 'white', fontWeight: '900', cursor: 'pointer' }}>一覧へ戻る</button>)}>
              <div style={{ display: 'flex', gap: '20px', minHeight: '600px', overflowX: 'auto', paddingBottom: '20px' }}>
                 {boardColumns.map(col => (
                    <div key={col.id} style={{ flex: '1', minWidth: '280px', backgroundColor: '#fcfcfd', borderRadius: '24px', padding: '16px', border: '1.5px solid #F1E4C9' }}>
@@ -1566,10 +1656,10 @@ case 'board': {
                                 <button 
                                    onClick={async (e) => { 
                                      e.stopPropagation(); 
-                                     if (confirm('非表示にしたすべての案件を再表示しますか？')) {
+                                     if (confirm('非表示にする案件をすべて再表示しますか？')) {
                                         try {
                                           const responses = await api.getStationResponses(selectedBoardProject.id);
-                                          const hiddenItems = responses.filter(r => r.status === 'completed');
+                                          const hiddenItems = responses.filter(r => r.response_data && r.response_data.agency_hidden === true);
                                           if (hiddenItems.length === 0) {
                                             alert('非表示の案件はありません。');
                                             return;
@@ -1577,10 +1667,10 @@ case 'board': {
                                           for (const r of hiddenItems) {
                                             await api.saveStationResponse(selectedBoardProject.id, r.station_name, {
                                               ...(r.response_data || {}),
-                                              status: 'recordings'
+                                              agency_hidden: false
                                             });
                                           }
-                                          alert('案件を再表示しました。');
+                                          alert('全案件を再表示しました。');
                                           fetchProjects();
                                           const updatedRes = await api.getStationResponses(selectedBoardProject.id);
                                           setSelectedProjectResponses(updatedRes || []);
@@ -1594,17 +1684,16 @@ case 'board': {
                                    <Sliders size={12} /> 一括再表示
                                 </button>
                              )}
-                             {col.items.length > 0 && (
-                               <button 
+                             <button 
                                   onClick={(e) => { 
                                     e.stopPropagation(); 
                                     if (role === 'agency') {
-                                      alert('選択されたすべての同録データをダウンロードします。');
+                                      alert('選択されたすべての完パケデータをダウンロードします。');
                                       col.items.forEach(item => {
                                         if (item.has_recording) handleRecordingDownload(item.projectId || item.id, item.station);
                                       });
                                     } else {
-                                      alert('同録データの一括アップロードを開始します。');
+                                      setActiveModal('bulk-recording-upload');
                                     }
                                   }} 
                                   style={{ padding: '4px 12px', borderRadius: '8px', backgroundColor: 'white', color: '#10b981', border: '1.5px solid #10b981', fontSize: '10px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
@@ -1612,7 +1701,6 @@ case 'board': {
                                   {role === 'agency' ? <Download size={12} /> : <Upload size={12} />}
                                   {role === 'agency' ? '一括DL' : '一括UP'}
                                </button>
-                             )}
                           </div>
                         )}
                       </h3>
@@ -1622,7 +1710,7 @@ case 'board': {
                                <div style={{ fontSize: '10px', color: '#FFD93D', fontWeight: '950', backgroundColor: '#3E2723', padding: '2px 8px', borderRadius: '4px' }}>{item.station}</div>
                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                   <button 
-                                     onClick={(e) => { e.stopPropagation(); setActiveChatChannel(item.name); setActiveTab('chat'); }} 
+                                     onClick={(e) => { e.stopPropagation(); if (typeof onNavigateToChat === 'function') { onNavigateToChat(item.name); } else { setActiveChatChannel(item.name); setActiveTab('chat'); } }} 
                                      style={{ padding: '4px 10px', borderRadius: '8px', backgroundColor: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', fontSize: '10px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
                                   >
                                      <MessageSquare size={12} /> チャット
@@ -1634,7 +1722,7 @@ case 'board': {
                             <div style={{ paddingTop: '12px', borderTop: '1px dashed #F1E4C9', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                {col.id === 'slots' && role !== 'agency' && (
                                   <button onClick={(e) => { e.stopPropagation(); setSelectedRequest(item); setActiveTab('slot-registration'); }} style={{ width: '100%', padding: '10px', borderRadius: '12px', backgroundColor: '#3E2723', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                     <Clock size={14} /> 枠詳細登録
+                                     <Clock size={14} /> 枠登録詳細
                                   </button>
                                 )}
                                {col.id === 'materials' && (
@@ -1643,7 +1731,7 @@ case 'board': {
                                         {item.has_material && (
                                            <div style={{ fontSize: '11px', color: '#059669', fontWeight: '950', display: 'flex', flexDirection: 'column', gap: '4px', backgroundColor: '#ecfdf5', padding: '8px', borderRadius: '8px', marginBottom: '8px' }}>
                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                  <Check size={14} /> 素材アップロード済 ({(item.material_paths || []).length}件)
+                                                  <Check size={14} /> 素材受領済み({(item.material_paths || []).length}件)
                                                </div>
                                                <div style={{ fontSize: '9px', color: '#065f46', borderTop: '1px solid #d1fae5', paddingTop: '4px', marginTop: '2px', opacity: 0.8 }}>
                                                   {(item.material_paths || []).map((path, idx) => {
@@ -1683,7 +1771,7 @@ case 'board': {
                                                   metadata: { [`response_${item.station}`]: { ...(selectedBoardProject.metadata?.[`response_${item.station}`] || {}), material_sent: true, status: 'registered' } }
                                                 }); 
                                                 if (success) {
-                                                  alert('素材の送信が完了しました。');
+                                                  alert('素材送信が完了しました。');
                                                   fetchProjects();
                                                 }
                                               }} 
@@ -1719,7 +1807,7 @@ case 'board': {
                                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' 
                                           }}
                                         >
-                                           <Download size={14} /> リライト・修正稿DL
+                                           <Download size={14} /> 修正稿DL
                                         </button>
                                         <div style={{ display: 'flex', gap: '8px' }}>
                                            <button onClick={(e) => { e.stopPropagation(); handleRevisedUpload(item.projectId || item.id, item.station); }} style={{ flex: '1', padding: '10px', borderRadius: '12px', backgroundColor: '#f59e0b', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
@@ -1748,13 +1836,13 @@ case 'board': {
                                        <div style={{ fontSize: '10px', color: '#ef4444', fontWeight: '950', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                 <Clock size={12} /> 修正〆切: {item.rewrite_deadline || '未設定'}
+                                                 <Clock size={12} /> 修正期限: {item.rewrite_deadline || '未設定'}
                                               </div>
                                               {item.rewrite_deadline && (
                                                  <button 
                                                    onClick={(e) => { e.stopPropagation(); handleClearRewriteDeadline(item.projectId || item.id, item.station); }}
                                                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
-                                                   title="〆切設定を解除"
+                                                   title="期日を削除"
                                                  >
                                                    <Trash2 size={12} />
                                                  </button>
@@ -1763,7 +1851,7 @@ case 'board': {
                                        </div>
                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                           <button onClick={(e) => { e.stopPropagation(); handleRewriteUpload(item.projectId || item.id, item.station); }} style={{ width: '100%', padding: '10px', borderRadius: '12px', backgroundColor: '#f59e0b', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                             <Edit size={14} /> リライト・修正稿UP
+                                             <Edit size={14} /> 修正稿UP
                                           </button>
                                           <button 
                                               onClick={(e) => { e.stopPropagation(); handleRevisedDownload(item.projectId || item.id, item.station); }} 
@@ -1802,7 +1890,7 @@ case 'board': {
                                                 status: 'rewrite_ok'
                                               });
                                               if (success) {
-                                                alert('リライト・修正稿の送信が完了しました。');
+                                                alert('修正稿の送信が完了しました。');
                                                 fetchProjects();
                                               }
                                             }} 
@@ -1837,18 +1925,34 @@ case 'board': {
                                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' 
                                           }}
                                        >
-                                          <Download size={14} /> 同録DL
+                                          <Download size={14} /> 完パケDL
                                        </button>
                                        <button 
                                          disabled={!item.recording_downloaded}
                                          onClick={async (e) => { 
                                            e.stopPropagation(); 
-                                           if (confirm('この案件を非表示にしますか？')) {
-                                             const success = await api.updateProject(item.projectId || item.id, { status: 'completed' }); 
-                                             if (success) {
-                                               alert('案件を非表示（完了）にしました。');
-                                               fetchProjects();
-                                             }
+                                           if (!item.recording_downloaded) {
+                                             alert('完パケDLボタンをクリックしてファイルをダウンロードしてから非表示にできます。');
+                                             return;
+                                           }
+                                           if (confirm('この案件を完了しますか？')) {
+                                              try {
+                                                await api.updateProjectStatus(item.projectId || item.id, 'completed');
+                                               const responses = await api.getStationResponses(item.projectId || item.id);
+                                               const current = responses.find(r => r.station_name === item.station) || {};
+                                               const success = await api.saveStationResponse(item.projectId || item.id, item.station, {
+                                                 ...(current.response_data || {}),
+                                                 agency_hidden: true
+                                               });
+                                               if (success) {
+                                                 alert('案件を完了しました。');
+                                                 fetchProjects();
+                                                 if (selectedBoardProject) {
+                                                   const updatedRes = await api.getStationResponses(selectedBoardProject.id);
+                                                   setSelectedProjectResponses(updatedRes || []);
+                                                 }
+                                               }
+                                             } catch(e) { console.error(e); }
                                            }
                                          }} 
                                          style={{ 
@@ -1872,16 +1976,21 @@ case 'board': {
                                         )}
                                         <div style={{ display: 'flex', gap: '8px' }}>
                                            <button onClick={(e) => { e.stopPropagation(); handleRecordingUpload(item.projectId || item.id, item.station); }} style={{ flex: '1', padding: '10px', borderRadius: '12px', backgroundColor: '#10b981', color: 'white', border: 'none', fontSize: '11px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                                              <Mic size={12} /> 同録UP
+                                              <Mic size={12} /> 完パケUP
                                            </button>
                                            <button 
                                              disabled={!item.has_recording}
                                              onClick={async (e) => { 
                                                e.stopPropagation(); 
                                                try {
-                                                 const success = await api.updateProject(item.projectId || item.id, { status: 'completed' }); 
+                                                 const responses = await api.getStationResponses(item.projectId || item.id);
+                                                 const current = responses.find(r => r.station_name === item.station) || {};
+                                                 const success = await api.saveStationResponse(item.projectId || item.id, item.station, {
+                                                   ...(current.response_data || {}),
+                                                   broadcaster_hidden: true
+                                                 });
                                                  if (success) {
-                                                   alert('同録の送信が完了しました。案件を完了として保存しました。');
+                                                   alert('完パケの送信が完了しました。案件を完了として保存しました。');
                                                    fetchProjects();
                                                  }
                                                } catch (err) {
@@ -1912,40 +2021,152 @@ case 'board': {
           </PageView>
         );
         }
-      case 'excel': {
-        const filteredData = [
-           { station: 'CX', date: '2026/05/10', sponsor: 'サントリー', name: '春の感謝祭パブ', status: '素材待ち', material: '未搬入', note: 'G帯指定' },
-           { station: 'NTV', date: '2026/05/12', sponsor: 'トヨタ', name: '新型SUV発表', status: '進行中', material: '済', note: '-' },
-        ];
+                        case 'excel': {
+        let excelRows = [];
+        projects.forEach(p => {
+          const stations = p.metadata?.selectedStations || [];
+          stations.forEach(s => {
+            if (role === 'broadcaster') {
+               if (role === 'broadcaster') {
+                 const possibleStationNames = [
+                   fullProfile?.broadcaster_name,
+                   fullProfile?.company_name,
+                   fullProfile?.org,
+                   fullProfile?.name
+                 ].filter(Boolean).map(n => n.toLowerCase().trim());
+
+                 const isMatch = possibleStationNames.some(name => 
+                   s.toLowerCase().includes(name) || name.includes(s.toLowerCase())
+                 );
+
+                 const isFirstStation = s === stations[0];
+                 
+                 if (!isMatch && !isFirstStation) return;
+               }
+            }
+
+            const projectResponses = broadcasterResponses[p.id] || [];
+            const stationResp = projectResponses.find(r => r.station_name === s);
+            const response = stationResp?.response_data || p.metadata?.[ `response_${s}`] || {};
+            const respStatus = stationResp?.status || response.status;
+            
+            const statusLabel = 
+          p.status === 'cancelled' ? '案件終了' :
+          (response?.broadcaster_hidden === true || response?.agency_hidden === true) ? '非表示' :
+          (respStatus === 'registered' || respStatus === 'pending') ? '素材受領済み' :
+          (respStatus === 'material_ok' || respStatus === 'rewrites') ? '修正稿受領済み' :
+          (respStatus === 'rewrite_ok' || respStatus === 'recordings') ? '完パケ受領済み' :
+          p.status === 'requesting' ? '放送出力済み' : p.status;
+
+            excelRows.push({
+              id: `${p.id}-${s}`,
+              projectId: p.id,
+              station: s,
+              agency: p.metadata?.agency_name || '不明',
+              date: p.start_date || '未設定',
+              sponsor: p.sponsor_name || p.metadata?.sponsor || '未設定',
+              name: p.name || p.title || '無題の案件',
+              status: statusLabel,
+              material: response.has_material ? '有' : '未納品',
+              note: p.metadata?.memo || '-'
+            });
+          });
+        });
+
+        const filteredExcelData = excelRows.filter(row => {
+          if (!excelSearchQuery) return true;
+          const query = excelSearchQuery.toLowerCase();
+          return (
+            row.station.toLowerCase().includes(query) ||
+            row.sponsor.toLowerCase().includes(query) ||
+            row.name.toLowerCase().includes(query) ||
+            row.status.toLowerCase().includes(query) ||
+            row.agency.toLowerCase().includes(query)
+          );
+        });
+
+        const isAgency = role === 'agency';
+        const thirdColHeader = isAgency ? '放送局' : '代理店';
+
         return (
-          <PageView title="エクセルビュー" desc="案件データを一覧形式で閲覧・編集します。" icon={Table} color="#7C3AED" action={<button style={{ backgroundColor: '#10B981', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', fontWeight: '900' }}>Excel出力</button>}>
-             <div style={{ backgroundColor: 'white', border: '1.5px solid #F1E4C9', borderRadius: '24px', overflow: 'hidden' }}>
+          <PageView title="Excelツール" desc="案件データをExcel形式で表示・出力します。" icon={Table} color="#7C3AED" action={<button onClick={handleExportExcel} style={{ backgroundColor: '#10B981', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', fontWeight: '900', cursor: 'pointer' }}>Excel出力</button>}>
+             <div style={{ marginBottom: '24px' }}>
+                <div style={{ position: 'relative', maxWidth: '400px' }}>
+                   <Search size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                   <input 
+                      type="text" 
+                      placeholder="局名、スポンサー、案件名で検索..." 
+                      value={excelSearchQuery}
+                      onChange={(e) => setExcelSearchQuery(e.target.value)}
+                      style={{ 
+                         width: '100%', padding: '12px 16px 12px 44px', borderRadius: '16px', 
+                         border: '2px solid #F1E4C9', fontSize: '14px', fontWeight: '800', outline: 'none',
+                         transition: 'border-color 0.2s'
+                      }} 
+                   />
+                </div>
+             </div>
+
+             <div style={{ backgroundColor: 'white', border: '1.5px solid #F1E4C9', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                   <thead style={{ backgroundColor: '#fcfcfc', borderBottom: '1.5px solid #F1E4C9' }}>
-                      <tr>{['放送局', '放送予定日', 'スポンサー', '案件名', 'ステータス', '素材搬入'].map(h => <th key={h} style={{ padding: '16px', textAlign: 'left', fontWeight: '950' }}>{h}</th>)}</tr>
+                   <thead style={{ backgroundColor: '#fcfcfd', borderBottom: '1.5px solid #F1E4C9' }}>
+                      <tr>
+                        {['スポンサー', '案件名', thirdColHeader, '放送開始日', 'ステータス', 'チャット'].map(h => (
+                          <th key={h} style={{ padding: '20px 24px', textAlign: 'left', fontSize: '13px', fontWeight: '950', color: '#3E2723' }}>{h}</th>
+                        ))}
+                      </tr>
                    </thead>
                    <tbody>
-                      {filteredData.map((row, i) => (
-                         <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                            <td style={{ padding: '16px' }}>{row.station}</td>
-                            <td style={{ padding: '16px' }}>{row.date}</td>
-                            <td style={{ padding: '16px' }}>{row.sponsor}</td>
-                            <td style={{ padding: '16px' }}>{row.name}</td>
-                            <td style={{ padding: '16px' }}>{row.status}</td>
-                            <td style={{ padding: '16px' }}>{row.material}</td>
+                      {filteredExcelData.length > 0 ? filteredExcelData.map((row) => (
+                         <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background-color 0.2s' }} className="hover-row">
+                            <td style={{ padding: '16px 24px', fontSize: '14px', fontWeight: '800' }}>{row.sponsor}</td>
+                            <td style={{ padding: '16px 24px', fontSize: '14px', fontWeight: '950', color: '#3E2723' }}>{row.name}</td>
+                            <td style={{ padding: '16px 24px', fontSize: '14px', fontWeight: '800' }}>{isAgency ? row.station : row.agency}</td>
+                            <td style={{ padding: '16px 24px', fontSize: '14px', fontWeight: '800', color: '#64748b' }}>{row.date}</td>
+                            <td style={{ padding: '16px 24px' }}>
+                               <span style={{ 
+                                  padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '900',
+                                  backgroundColor: row.status === '非表示' ? '#ecfdf5' : row.status === '素材受領済み' ? '#fff7ed' : '#f1f5f9',
+                                  color: row.status === '非表示' ? '#10b981' : row.status === '素材受領済み' ? '#f97316' : '#64748b'
+                               }}>
+                                  {row.status}
+                               </span>
+                            </td>
+                            <td style={{ padding: '16px 24px' }}>
+                               <button 
+                                 onClick={() => {
+                                   if (typeof onNavigateToChat === 'function') {
+                                     onNavigateToChat(row.name);
+                                   } else {
+                                     setActiveTab('chat');
+                                   }
+                                 }}
+                                 style={{ 
+                                   border: 'none', background: '#f1f5f9', color: '#64748b', 
+                                   padding: '8px', borderRadius: '10px', cursor: 'pointer',
+                                   display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                 }}
+                                 title="チャットを開く"
+                               >
+                                 <MessageSquare size={18} />
+                               </button>
+                            </td>
                          </tr>
-                      ))}
+                      )) : (
+                        <tr>
+                          <td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>該当する案件は見当たりませんでした。</td>
+                        </tr>
+                      )}
                    </tbody>
                 </table>
              </div>
           </PageView>
         );
-
       }
 
       case 'bulk-change-cancel': {
         return (
-          <PageView title="一括変更・取消" desc="複数の案件を選択して一括でステータス変更や取り消しを行います。" icon={Sliders} color="#EF4444">
+          <PageView title="一括変更・取り消し" desc="複数の案件を選択して一括でステータス変更・削除を行います。" icon={Sliders} color="#EF4444">
              <div style={{ display: 'grid', gap: '24px' }}>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                    <button 
@@ -1976,7 +2197,7 @@ case 'board': {
                         display: 'flex', alignItems: 'center', gap: '8px'
                       }}
                    >
-                      <Trash2 size={18} /> 一括取消
+                      <Trash2 size={18} /> 一括取り消し
                    </button>
                 </div>
 
@@ -1997,8 +2218,8 @@ case 'board': {
                             </th>
                             <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>スポンサー</th>
                             <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>案件名</th>
-                            <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>依頼期間</th>
-                            <th style={{ padding: '20px 32px', textAlign: 'center', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>素材搬入開始日</th>
+                            <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>放送期間</th>
+                            <th style={{ padding: '20px 32px', textAlign: 'center', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>素材搬入期限</th>
                          </tr>
                       </thead>
                       <tbody>
@@ -2008,7 +2229,7 @@ case 'board': {
                             </tr>
                          ) : projects.length === 0 ? (
                             <tr>
-                               <td colSpan={5} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>対象の案件が見つかりません</td>
+                               <td colSpan={5} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>該当する案件はありません</td>
                             </tr>
                          ) : projects.filter(p => p.status !== 'cancelled').map(p => {
                             const isSelected = selectedBulkProjectIds.includes(p.id);
@@ -2046,110 +2267,18 @@ case 'board': {
              </div>
           </PageView>
         );
-
-
       }
 
       case 'copy-project': {
-        if (selectedCopySource) {
-          return (
-            <PageView 
-              title="案件複製" 
-              desc="過去の案件情報を元に、内容を調整して新しい案件を作成します。" 
-              icon={Copy} 
-              color="#8B4513"
-              action={<button onClick={() => setSelectedCopySource(null)} style={{ padding: '8px 20px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: 'white', fontWeight: '900', cursor: 'pointer' }}>リストに戻る</button>}
-            >
-               <div style={{ backgroundColor: 'white', padding: '48px', borderRadius: '32px', border: '1.5px solid #F1E4C9' }}>
-                  <div style={{ display: 'grid', gap: '28px' }}>
-                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                        <div className="input-group">
-                           <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>スポンサー</label>
-                           <input type="text" value={sponsorName} onChange={(e) => setSponsorName(e.target.value)} placeholder="例：サントリー株式会社" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700' }} />
-                        </div>
-                        <div className="input-group">
-                           <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>BA (担当者)</label>
-                           <select 
-                             value={selectedBa}
-                             onChange={(e) => setSelectedBa(e.target.value)}
-                             style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white' }}
-                           >
-                              <option value="">BAを選択してください</option>
-                              {(maBaMappings['本社'] || []).map(baOrg => <option key={baOrg} value={baOrg}>{baOrg}</option>)}
-                           </select>
-                        </div>
-                     </div>
-                     <div className="input-group">
-                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>案件名</label>
-                        <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="例：春の新商品キャンペーン" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '800' }} />
-                     </div>
-                     <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px' }}>
-                         <div className="input-group">
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>依頼期間</label>
-                            <div onClick={() => setActiveModal('period')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                               <Calendar size={18} color="#8B4513" />
-                               <span style={{ color: requestDateRange.start ? '#3E2723' : '#94a3b8' }}>
-                                  {requestDateRange.start && requestDateRange.end ? `${requestDateRange.start} 〜 ${requestDateRange.end}` : '期間を選択してください'}
-                               </span>
-                            </div>
-                         </div>
-                         <div className="input-group">
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>依頼ゾーン</label>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                               <div onClick={() => setActiveModal('zone')} style={{ flex: 1, padding: '14px 10px', borderRadius: '16px', border: '2px solid #F1E4C9', textAlign: 'center', fontWeight: '950', cursor: 'pointer', backgroundColor: 'white' }}>{startHour}:00</div>
-                               <span>〜</span>
-                               <div onClick={() => setActiveModal('zone')} style={{ flex: 1, padding: '14px 10px', borderRadius: '16px', border: '2px solid #F1E4C9', textAlign: 'center', fontWeight: '950', cursor: 'pointer', backgroundColor: 'white' }}>{endHour}:00</div>
-                            </div>
-                         </div>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                         <div className="input-group">
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '12px' }}>パブ種別</label>
-                            <div onClick={() => setActiveModal('pubType')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', flexWrap: 'wrap', gap: '8px', minHeight: '56px' }}>
-                               {selectedPubTypes.map(type => <span key={type} style={{ padding: '4px 12px', borderRadius: '8px', backgroundColor: '#FFFBE6', color: '#8B4513', fontSize: '12px', fontWeight: '900', border: '1px solid #FFD93D' }}>{type}</span>)}
-                               {selectedPubTypes.length === 0 && <span style={{ color: '#94a3b8' }}>選択してください</span>}
-                            </div>
-                         </div>
-                         <div className="input-group">
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '12px' }}>素材搬入開始日</label>
-                            <input type="date" value={materialDeadline} onChange={(e) => setMaterialDeadline(e.target.value)} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700' }} />
-                         </div>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                         <div className="input-group">
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>リライト共有者</label>
-                            <div onClick={() => setActiveModal('reviewer-rewrite')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                               <Users size={18} /> <span>{rewriteReviewer || '担当者を選択'}</span>
-                            </div>
-                         </div>
-                         <div className="input-group">
-                            <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>同録共有者</label>
-                            <div onClick={() => setActiveModal('reviewer-recording')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                               <Users size={18} /> <span>{recordingReviewer || '担当者を選択'}</span>
-                            </div>
-                         </div>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', padding: '24px 0 0 0', borderTop: '1px solid #F1E4C9' }}>
-                         <button onClick={() => setSelectedCopySource(null)} style={{ padding: '14px 32px', borderRadius: '16px', fontWeight: '950', backgroundColor: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0' }}>キャンセル</button>
-                         <button style={{ padding: '14px 32px', borderRadius: '16px', fontWeight: '950', backgroundColor: '#FFFBE6', color: '#8B4513', border: '2px solid #FFD93D' }} onClick={() => setActiveTab('select-stations')}><Monitor size={18} /> 依頼局選択</button>
-                         <button style={{ padding: '14px 56px', borderRadius: '16px', fontWeight: '950', backgroundColor: isSubmitting ? '#94a3b8' : '#3E2723', color: 'white', border: 'none', cursor: isSubmitting ? 'wait' : 'pointer' }} onClick={async () => { await handleCreateProject(); setSelectedCopySource(null); }} disabled={isSubmitting}>{isSubmitting ? '送信中...' : '複製して送信'}</button>
-                      </div>
-                   </div>
-                </div>
-            </PageView>
-          );
-        }
-
         const filteredCopyProjects = projects.filter(p => 
           p.name?.toLowerCase().includes(copySearchQuery.toLowerCase()) || 
           p.sponsor_name?.toLowerCase().includes(copySearchQuery.toLowerCase())
         );
 
         return (
-          <PageView title="案件複製" desc="過去の案件を検索して複製し、新しい案件を作成します。" icon={History} color="#8B4513">
+          <PageView title="案件コピー" desc="既存の案件を検索してコピーし、新しい案件を作成します。" icon={History} color="#8B4513">
              <div style={{ display: 'grid', gap: '24px' }}>
-                {/* 検索バー */}
-                <div style={{ backgroundColor: 'white', padding: '24px 32px', borderRadius: '24px', border: '1.5px solid #F1E4C9', display: 'flex', gap: '16px', alignItems: 'center' }}>
+               <div style={{ backgroundColor: 'white', padding: '24px 32px', borderRadius: '24px', border: '1.5px solid #F1E4C9', display: 'flex', gap: '16px', alignItems: 'center' }}>
                    <div style={{ position: 'relative', flex: 1 }}>
                       <Search size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                       <input 
@@ -2168,17 +2297,16 @@ case 'board': {
                    </div>
                 </div>
 
-                {/* 案件一覧テーブル */}
                 <div style={{ backgroundColor: 'white', borderRadius: '28px', border: '1.5px solid #F1E4C9', overflow: 'hidden', boxShadow: '0 10px 25px rgba(0,0,0,0.03)' }}>
                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead style={{ backgroundColor: '#fcfcfd', borderBottom: '1.5px solid #F1E4C9' }}>
                          <tr>
                             <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>スポンサー</th>
                             <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>案件名</th>
-                            <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>依頼期間</th>
+                            <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>放送期間</th>
                             <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>BA</th>
-                            <th style={{ padding: '20px 32px', textAlign: 'center', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>素材搬入開始日</th>
-                            <th style={{ padding: '20px 32px', textAlign: 'center', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>依頼局</th>
+                            <th style={{ padding: '20px 32px', textAlign: 'center', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>素材搬入期限</th>
+                            <th style={{ padding: '20px 32px', textAlign: 'center', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>放送局数</th>
                             <th style={{ padding: '20px 32px', textAlign: 'center', width: '120px' }}>操作</th>
                          </tr>
                       </thead>
@@ -2186,7 +2314,7 @@ case 'board': {
                          {isLoading ? (
                             <tr><td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>読み込み中...</td></tr>
                          ) : filteredCopyProjects.length === 0 ? (
-                            <tr><td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>該当する案件が見つかりません</td></tr>
+                            <tr><td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>該当する案件はありません</td></tr>
                          ) : filteredCopyProjects.map(p => (
                             <tr key={p.id} style={{ borderBottom: '1px solid #F1E4C9', transition: 'background-color 0.2s' }}>
                                <td style={{ padding: '20px 32px' }}>
@@ -2221,7 +2349,7 @@ case 'board': {
                                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
                                      }}
                                   >
-                                     <Copy size={16} /> 複製
+                                     <Copy size={16} /> コピー
                                   </button>
                                </td>
                             </tr>
@@ -2232,257 +2360,168 @@ case 'board': {
              </div>
           </PageView>
         );
-
-
       }
 
       case 'slot-registration': {
         if (!selectedRequest) {
-           return (
-              <PageView title="枠情報登録" desc="依頼内容を確認し、放送枠情報を登録してください。" icon={Clock} color="#34D399">
-                 <div style={{ display: 'grid', gap: '0.75rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', padding: '0 2rem', marginBottom: '0.5rem', color: '#94a3b8', fontSize: '12px', fontWeight: '950', gap: '2rem' }}>
-                       <div style={{ flex: '1.5', minWidth: '150px' }}>スポンサー / 代理店</div>
-                       <div style={{ flex: '1.8', minWidth: '200px' }}>案件名</div>
-                       <div style={{ flex: '1.5', minWidth: '180px' }}>依頼期間</div>
-                       <div style={{ flex: '1', minWidth: '120px' }}>素材搬入開始日</div>
-                        <div style={{ flex: '0.8', minWidth: '80px', textAlign: 'center' }}>ステータス</div>
-                        <div style={{ width: '24px' }}></div>
-                    </div>
-                    {projects.length === 0 ? (
-                       <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', backgroundColor: 'white', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>未対応の依頼はありません。</div>
-                    ) : projects.map(p => (
-                       <div key={p.id} onClick={() => setSelectedRequest(p)} style={{ display: 'flex', alignItems: 'center', padding: '1.25rem 2rem', backgroundColor: 'white', borderRadius: '20px', border: '1.5px solid #F1E4C9', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', gap: '2rem' }} onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = '#34D399'; }} onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = '#F1E4C9'; }}>
-                          <div style={{ flex: '1.5', minWidth: '150px' }}><div style={{ fontSize: '13px', color: '#059669', fontWeight: '800' }}>{p.sponsor_name} / {p.metadata?.ba || p.metadata?.agency || '---'}</div></div>
-                          <div style={{ flex: '1.8', minWidth: '200px' }}><div style={{ fontSize: '1.1rem', fontWeight: '950', color: '#3E2723' }}>{p.name}</div></div>
-                          <div style={{ flex: '1.5', minWidth: '180px' }}><div style={{ fontSize: '14px', fontWeight: '800', color: '#3E2723' }}>{p.start_date || '---'} 〜 {p.end_date || '---'}</div></div>
-                          <div style={{ flex: '1', minWidth: '120px' }}><div style={{ fontSize: '14px', fontWeight: '800', color: '#3E2723' }}>{p.metadata?.material_start_date || p.metadata?.material_deadline || '---'}</div></div>
-                           {(() => {
-                           
-                           const stationName = fullProfile?.broadcaster_name || fullProfile?.name || '系列局A';
-                           const projectResponses = broadcasterResponses[p.id] || [];
-                           const stationResp = projectResponses.find(r => r.station_name === stationName);
-                           const respStatus = stationResp?.status || (p.status === 'requesting' ? 'slots' : p.status);
-                           
-                           let displayStatusLabel = '枠出し待ち';
-                           let statusColor = '#3b82f6';
-                           let statusBg = '#eff6ff';
-                           
-                           if (p.status === 'cancelled') {
-                             displayStatusLabel = '取消';
-                             statusColor = '#ef4444';
-                             statusBg = '#fee2e2';
-                           } else if (respStatus === 'registered' || respStatus === 'pending') {
-                             displayStatusLabel = '素材待ち';
-                             statusColor = '#8b5cf6';
-                             statusBg = '#f5f3ff';
-                           } else if (respStatus === 'material_ok' || respStatus === 'rewrites') {
-                             displayStatusLabel = 'リライト待ち';
-                             statusColor = '#f59e0b';
-                             statusBg = '#fffbeb';
-                           } else if (respStatus === 'rewrite_ok') {
-                             displayStatusLabel = '同録待ち';
-                             statusColor = '#10b981';
-                             statusBg = '#ecfdf5';
-                           } else if (p.status === 'completed') {
-                             displayStatusLabel = '完了';
-                             statusColor = '#10b981';
-                             statusBg = '#ecfdf5';
-                           }
-
-                           return (
-                             <div style={{ flex: '0.8', minWidth: '80px', textAlign: 'center' }}>
-                                <span style={{ 
-                                  padding: '4px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: '950',
-                                  backgroundColor: statusBg,
-                                  color: statusColor
-                                }}>
-                                  {displayStatusLabel}
-                                </span>
-                             </div>
-                           );
-                        })()}
-                           <ChevronRight style={{ color: '#F1E4C9' }} />
-                       </div>
-                    ))}
-                 </div>
-              </PageView>
-           );
+          return (
+            <PageView title="枠情報登録" desc="依頼内容を確認し、放送枠情報を登録してください。" icon={Clock} color="#34D399">
+               <div style={{ display: 'grid', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '0 2rem', marginBottom: '0.5rem', color: '#94a3b8', fontSize: '12px', fontWeight: '950', gap: '2rem' }}>
+                     <div style={{ flex: '1.5', minWidth: '150px' }}>スポンサー / 代理店</div>
+                     <div style={{ flex: '1.8', minWidth: '200px' }}>案件名</div>
+                     <div style={{ flex: '1.5', minWidth: '180px' }}>依頼期間</div>
+                     <div style={{ flex: '1', minWidth: '120px' }}>素材搬入〆切日</div>
+                     <div style={{ width: '24px' }}></div>
+                  </div>
+                  {projects.filter(p => p.status === 'requesting' || p.status === 'slots').length === 0 ? (
+                     <div style={{ textAlign: 'center', padding: '48px', color: '#94a3b8', backgroundColor: 'white', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>未対応の依頼はありません。</div>
+                  ) : projects.filter(p => p.status === 'requesting' || p.status === 'slots').map(p => (
+                     <div 
+                        key={p.id} 
+                        onClick={() => {
+                           setSelectedRequest(p);
+                           setFormProgramName(p.metadata?.programName || '');
+                           setFormPubType(Array.isArray(p.metadata?.pub_types) ? p.metadata.pub_types[0] : (p.metadata?.pub_types || ''));
+                           setFormOADate(p.metadata?.oaDate || p.start_date || '');
+                           setFormTimeRange(p.metadata?.timeRange || `${p.metadata?.start_hour || '05'}:00〜${p.metadata?.end_hour || '24'}:00`);
+                           setFormOADuration(p.metadata?.duration || '15');
+                           setFormMaterialDeadlineLimit(p.metadata?.materialDeadline || p.metadata?.material_deadline || '');
+                           setFormRecordingDate(p.metadata?.recordingDate || '');
+                           setFormMaterialDest(p.metadata?.materialDest || '');
+                           setFormRevisionDest(p.metadata?.revisionDest || '');
+                        }} 
+                        style={{ display: 'flex', alignItems: 'center', padding: '20px 32px', backgroundColor: 'white', borderRadius: '20px', border: '1.5px solid #F1E4C9', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', gap: '2rem' }} 
+                        onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = '#34D399'; }} 
+                        onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = '#F1E4C9'; }}
+                     >
+                        <div style={{ flex: '1.5', minWidth: '150px' }}><div style={{ fontSize: '13px', color: '#059669', fontWeight: '800' }}>{p.sponsor_name} / {p.metadata?.ba || '---'}</div></div>
+                        <div style={{ flex: '1.8', minWidth: '200px' }}><div style={{ fontSize: '1.1rem', fontWeight: '950', color: '#3E2723' }}>{p.name}</div></div>
+                        <div style={{ flex: '1.5', minWidth: '180px' }}><div style={{ fontSize: '14px', fontWeight: '800', color: '#3E2723' }}>{p.start_date || '---'} 〜 {p.end_date || '---'}</div></div>
+                        <div style={{ flex: '1', minWidth: '120px' }}><div style={{ fontSize: '14px', fontWeight: '800', color: '#EF4444' }}>{p.metadata?.material_deadline || '---'}</div></div>
+                        <ChevronRight style={{ color: '#F1E4C9' }} />
+                     </div>
+                  ))}
+               </div>
+            </PageView>
+          );
         }
+
         const availablePubTypes = [...new Set(
-           (Array.isArray(selectedRequest.metadata?.pub_types) ? selectedRequest.metadata.pub_types : [selectedRequest.metadata?.pub_types || ''])
-           .map(t => t.replace(/打診|確定|確約/g, ''))
-           .filter(Boolean)
+          (Array.isArray(selectedRequest.metadata?.pub_types) ? selectedRequest.metadata.pub_types : [selectedRequest.metadata?.pub_types || ''])
+          .map(t => t.replace(/打診|確定|確約/g, ''))
+          .filter(Boolean)
         )];
 
         return (
-           <PageView title="枠詳細登録" desc="依頼内容を確認し、放送枠情報を登録してください。" icon={Clock} color="#34D399" action={<button onClick={() => setSelectedRequest(null)} style={{ padding: '8px 20px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: 'white', fontWeight: '900', cursor: 'pointer' }}>戻る</button>}>
-              <div style={{ display: 'grid', gap: '24px' }}>
-                 <div style={{ backgroundColor: '#fcfcfd', borderRadius: '28px', border: '1.5px solid #F1E4C9', padding: '24px', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' }}>
-                    <SectionTitle title="案件情報" />
-                    <div style={{ display: 'grid', gap: '20px' }}>
-                       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 2.2fr 1.2fr', gap: '24px' }}>
-                          <FormItem label="スポンサー / 代理店" value={`${selectedRequest.sponsor_name} / ${selectedRequest.metadata?.ba || selectedRequest.metadata?.agency || '---'}`} />
-                          <FormItem label="案件名" value={selectedRequest.name} />
-                          <FormItem label="パブ種別" value={Array.isArray(selectedRequest.metadata?.pub_types) ? selectedRequest.metadata.pub_types.join(', ') : (selectedRequest.metadata?.pub_types || '---')} />
-                       </div>
-                       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1.2fr 0.8fr', gap: '24px', borderTop: '1px dashed #F1E4C9', paddingTop: '20px' }}>
-                          <FormItem label="依頼期間" value={`${selectedRequest.start_date || '---'} 〜 ${selectedRequest.end_date || '---'}`} />
-                          <FormItem label="依頼ゾーン" value={`${selectedRequest.metadata?.start_hour || '05'}:00 〜 ${selectedRequest.metadata?.end_hour || '24'}:00`} />
-                          <FormItem label="素材搬入開始日" value={selectedRequest.metadata?.material_start_date || selectedRequest.metadata?.material_deadline || '未設定'} />
-                           {(() => {
-                              
-                           const stationName = fullProfile?.broadcaster_name || fullProfile?.name || '系列局A';
-                           const projectResponses = broadcasterResponses[selectedRequest.id] || [];
-                           const stationResp = projectResponses.find(r => r.station_name === stationName);
-                           const respStatus = stationResp?.status || (selectedRequest.status === 'requesting' ? 'slots' : selectedRequest.status);
-                           
-                           let displayStatusLabel = '枠出し待ち';
-                           let statusColor = '#3b82f6';
-                           let statusBg = '#eff6ff';
-                           
-                           if (selectedRequest.status === 'cancelled') {
-                             displayStatusLabel = '取消';
-                             statusColor = '#ef4444';
-                             statusBg = '#fee2e2';
-                           } else if (respStatus === 'registered' || respStatus === 'pending') {
-                             displayStatusLabel = '素材待ち';
-                             statusColor = '#8b5cf6';
-                             statusBg = '#f5f3ff';
-                           } else if (respStatus === 'material_ok' || respStatus === 'rewrites') {
-                             displayStatusLabel = 'リライト待ち';
-                             statusColor = '#f59e0b';
-                             statusBg = '#fffbeb';
-                           } else if (respStatus === 'rewrite_ok') {
-                             displayStatusLabel = '同録待ち';
-                             statusColor = '#10b981';
-                             statusBg = '#ecfdf5';
-                           } else if (selectedRequest.status === 'completed') {
-                             displayStatusLabel = '完了';
-                             statusColor = '#10b981';
-                             statusBg = '#ecfdf5';
-                           }
+          <PageView title="枠詳細登録" desc="依頼内容を確認し、放送枠情報を登録してください。" icon={Clock} color="#34D399" action={<button onClick={() => setSelectedRequest(null)} style={{ padding: '8px 20px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: 'white', fontWeight: '950', color: '#8B4513', cursor: 'pointer' }}>戻る</button>}>
+             <div style={{ display: 'grid', gap: '24px' }}>
+                <div style={{ backgroundColor: '#fcfcfd', borderRadius: '28px', border: '1.5px solid #F1E4C9', padding: '24px', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' }}>
+                   <SectionTitle title="案件情報" />
+                   <div style={{ display: 'grid', gap: '20px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 2.2fr 1.2fr', gap: '24px' }}>
+                         <FormItem label="スポンサー / 代理店" value={`${selectedRequest.sponsor_name} / ${selectedRequest.metadata?.ba || '---'}`} />
+                         <FormItem label="案件名" value={selectedRequest.name} />
+                         <FormItem label="パブ種別" value={Array.isArray(selectedRequest.metadata?.pub_types) ? selectedRequest.metadata.pub_types.join(', ') : (selectedRequest.metadata?.pub_types || '---')} />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1.2fr', gap: '24px', borderTop: '1px dashed #F1E4C9', paddingTop: '20px' }}>
+                         <FormItem label="依頼期間" value={`${selectedRequest.start_date || '---'} 〜 ${selectedRequest.end_date || '---'}`} />
+                         <FormItem label="依頼ゾーン" value={`${selectedRequest.metadata?.start_hour || '05'}:00 〜 ${selectedRequest.metadata?.end_hour || '24'}:00`} />
+                         <FormItem label="素材搬入期限" value={selectedRequest.metadata?.material_deadline || '未設定'} />
+                      </div>
+                   </div>
+                </div>
 
-                              return (
-                                <FormItem label="ステータス" value={
-                                   <span style={{ 
-                                     padding: '4px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: '950',
-                                     backgroundColor: statusBg,
-                                     color: statusColor
-                                   }}>
-                                     {displayStatusLabel}
-                                   </span>
-                                } />
-                              );
-                           })()}
-                       </div>
-                    </div>
-                 </div>
-                 <div style={{ backgroundColor: 'white', borderRadius: '28px', border: '1.5px solid #F1E4C9', padding: '32px', boxShadow: '0 10px 25px rgba(0,0,0,0.03)' }}>
-                    <SectionTitle title="枠情報入力" />
-                    <div style={{ display: 'grid', gap: '24px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '20px' }}>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              <label style={{ fontSize: '10px', fontWeight: '900', color: '#94a3b8' }}>番組名</label>
-                              <input type="text" value={formProgramName} onChange={(e) => setFormProgramName(e.target.value)} placeholder="番組名を入力" style={{ padding: '12px 16px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfd', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none' }} />
-                           </div>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              <label style={{ fontSize: '10px', fontWeight: '900', color: '#94a3b8' }}>パブ種別</label>
-                              <select value={formPubType} onChange={(e) => setFormPubType(e.target.value)} style={{ padding: '12px 16px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfd', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none', cursor: 'pointer' }}>
-                                 <option value="">種別を選択</option>
-                                 {availablePubTypes.map(t => (
-                                    <option key={t} value={t}>{t}</option>
-                                 ))}
-                              </select>
-                           </div>
-                        </div>
+                <div style={{ backgroundColor: 'white', borderRadius: '28px', border: '1.5px solid #F1E4C9', padding: '32px', boxShadow: '0 10px 25px rgba(0,0,0,0.03)' }}>
+                   <SectionTitle title="枠情報入力" />
+                   <div style={{ display: 'grid', gap: '24px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '20px' }}>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>番組名</label>
+                            <input type="text" value={formProgramName} onChange={(e) => setFormProgramName(e.target.value)} placeholder="番組名を入力" style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none' }} />
+                         </div>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>パブ種別</label>
+                            <select value={formPubType} onChange={(e) => setFormPubType(e.target.value)} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none', cursor: 'pointer' }}>
+                               <option value="">種別を選択</option>
+                               {availablePubTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                         </div>
+                      </div>
 
-                        {dashboardStats.occupancy === '0%' && (
-                        <div style={{ padding: '12px 16px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: '12px', color: '#B91C1C', fontSize: '12px', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                          <Shield size={16} /> 
-                          <span>ストレージバケットが未設定です。ファイル機能は現在シミュレーションモードで動作しています。</span>
-                        </div>
-                      )}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              <label style={{ fontSize: '10px', fontWeight: '900', color: '#94a3b8' }}>OA日</label>
-                              <button onClick={() => setActiveModal('formOADate')} style={{ padding: '12px 16px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfd', fontSize: '14px', fontWeight: '800', color: formOADate ? '#3E2723' : '#94a3b8', outline: 'none', textAlign: 'left', cursor: 'pointer' }}>{formOADate || '日付を選択'}</button>
-                           </div>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              <label style={{ fontSize: '10px', fontWeight: '900', color: '#94a3b8' }}>開始・終了時間</label>
-                              <input type="text" value={formTimeRange} onChange={(e) => setFormTimeRange(e.target.value)} placeholder="12:00〜12:30" style={{ padding: '12px 16px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfd', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none' }} />
-                           </div>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              <label style={{ fontSize: '10px', fontWeight: '900', color: '#94a3b8' }}>OA尺</label>
-                              <select value={formOADuration} onChange={(e) => setFormOADuration(e.target.value)} style={{ padding: '12px 16px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfd', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none', cursor: 'pointer' }}>
-                                 {[15, 30, 45, 60, 90, 120, 180].map(v => <option key={v} value={v}>{v}秒</option>)}
-                              </select>
-                           </div>
-                        </div>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>OA日</label>
+                            <input type="date" value={formOADate} onChange={(e) => setFormOADate(e.target.value)} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none' }} />
+                         </div>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>開始・終了時間</label>
+                            <input type="text" value={formTimeRange} onChange={(e) => setFormTimeRange(e.target.value)} placeholder="12:00〜12:30" style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none' }} />
+                         </div>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>OA尺</label>
+                            <select value={formOADuration} onChange={(e) => setFormOADuration(e.target.value)} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none', cursor: 'pointer' }}>
+                               {[15, 30, 45, 60, 90, 120, 180].map(v => <option key={v} value={v}>{v}秒</option>)}
+                            </select>
+                         </div>
+                      </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              <label style={{ fontSize: '10px', fontWeight: '900', color: '#94a3b8' }}>素材搬入〆切</label>
-                              <button onClick={() => setActiveModal('formMaterialDeadlineLimit')} style={{ padding: '12px 16px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfd', fontSize: '14px', fontWeight: '800', color: formMaterialDeadlineLimit ? '#3E2723' : '#94a3b8', outline: 'none', textAlign: 'left', cursor: 'pointer' }}>{formMaterialDeadlineLimit || '日付を選択'}</button>
-                           </div>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              <label style={{ fontSize: '10px', fontWeight: '900', color: '#94a3b8' }}>収録日</label>
-                              <input type="date" value={formRecordingDate} onChange={(e) => setFormRecordingDate(e.target.value)} style={{ padding: '12px 16px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfd', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none' }} />
-                           </div>
-                        </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>素材搬入〆切</label>
+                            <input type="date" value={formMaterialDeadlineLimit} onChange={(e) => setFormMaterialDeadlineLimit(e.target.value)} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none' }} />
+                         </div>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>収録日</label>
+                            <input type="date" value={formRecordingDate} onChange={(e) => setFormRecordingDate(e.target.value)} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none' }} />
+                         </div>
+                      </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              <label style={{ fontSize: '10px', fontWeight: '900', color: '#94a3b8' }}>素材送付先</label>
-                              <select value={formMaterialDest} onChange={(e) => setFormMaterialDest(e.target.value)} style={{ padding: '12px 16px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfd', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none', cursor: 'pointer' }}>
-                                 <option value="">メンバーを選択</option>
-                                 {puddingUsers.map(u => <option key={u.id} value={u.name}>{u.name} ({u.org})</option>)}
-                              </select>
-                           </div>
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              <label style={{ fontSize: '10px', fontWeight: '900', color: '#94a3b8' }}>修正稿送付先</label>
-                              <select value={formRevisionDest} onChange={(e) => setFormRevisionDest(e.target.value)} style={{ padding: '12px 16px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfd', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none', cursor: 'pointer' }}>
-                                 <option value="">メンバーを選択</option>
-                                 {puddingUsers.map(u => <option key={u.id} value={u.name}>{u.name} ({u.org})</option>)}
-                              </select>
-                           </div>
-                        </div>
-                    </div>
-                  </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>素材送付先</label>
+                            <select value={formMaterialDest} onChange={(e) => setFormMaterialDest(e.target.value)} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none', cursor: 'pointer' }}>
+                               <option value="">メンバーを選択</option>
+                               {puddingUsers.map(u => <option key={u.id} value={u.name}>{u.name} ({u.org})</option>)}
+                            </select>
+                         </div>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>修正稿送付先</label>
+                            <select value={formRevisionDest} onChange={(e) => setFormRevisionDest(e.target.value)} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none', cursor: 'pointer' }}>
+                               <option value="">メンバーを選択</option>
+                               {puddingUsers.map(u => <option key={u.id} value={u.name}>{u.name} ({u.org})</option>)}
+                            </select>
+                         </div>
+                      </div>
+                   </div>
+                </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '32px', paddingTop: '32px', borderTop: '1.5px solid #F1E4C9' }}>
-                     <button 
-                        onClick={() => handleStationSave(false)}
-                        disabled={isSubmitting}
-                        style={{ padding: '14px 48px', borderRadius: '16px', backgroundColor: 'white', color: '#3E2723', border: '2px solid #F1E4C9', fontWeight: '950', cursor: 'pointer', transition: 'all 0.2s' }}
-                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'white'}
-                     >
-                        {isSubmitting ? '処理中...' : '一時保存'}
-                     </button>
-                     <button 
-                        onClick={() => handleStationSave(true)}
-                        disabled={isSubmitting}
-                        style={{ padding: '14px 64px', borderRadius: '16px', backgroundColor: '#34D399', color: 'white', border: 'none', fontWeight: '950', cursor: 'pointer', boxShadow: '0 8px 20px rgba(52, 211, 153, 0.3)', transition: 'all 0.2s' }}
-                        onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-                        onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-                     >
-                        {isSubmitting ? '送信中...' : '枠出し'}
-                     </button>
-                  </div>
-               </div>
-           </PageView>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '32px', paddingTop: '32px', borderTop: '1.5px solid #F1E4C9' }}>
+                   <button 
+                      onClick={() => handleStationSave(false)}
+                      disabled={isSubmitting}
+                      style={{ padding: '14px 48px', borderRadius: '16px', backgroundColor: 'white', color: '#3E2723', border: '2px solid #F1E4C9', fontWeight: '950', cursor: 'pointer' }}
+                   >
+                      {isSubmitting ? '処理中...' : '一時保存'}
+                   </button>
+                   <button 
+                      onClick={() => handleStationSave(true)}
+                      disabled={isSubmitting}
+                      style={{ padding: '14px 64px', borderRadius: '16px', backgroundColor: '#34D399', color: 'white', border: 'none', fontWeight: '950', cursor: 'pointer', boxShadow: '0 8px 20px rgba(52, 211, 153, 0.3)' }}
+                   >
+                      {isSubmitting ? '送信中...' : '枠出し'}
+                   </button>
+                </div>
+             </div>
+          </PageView>
         );
-
       }
 
       case 'slot-move-suspended': {
         const slotMoveProjects = projects.filter(p => {
-          // 管理者の場合は全件表示、放送局の場合は自局に関連する案件のみ表示
           const stations = p.metadata?.selectedStations || p.selectedStations || [];
-          let myName = fullProfile?.broadcaster_name || fullProfile?.name || '系列局A';
+          let myName = fullProfile?.broadcaster_name || fullProfile?.name || '放送局A';
           
-          // 依頼局に含まれていない場合、デモ用に最初の依頼局を自局と見なすロジック（他の画面と統一）
           if (stations.length > 0 && !stations.includes(myName)) {
              myName = stations[0];
           }
@@ -2498,7 +2537,7 @@ case 'board': {
         });
 
         return (
-          <PageView title="枠移動・休止" desc="登録済みの枠情報を変更・休止します。" icon={History} color="#EF4444">
+          <PageView title="枠移動・休止" desc="放送中の案件の枠移動や休止を行います。" icon={History} color="#EF4444">
              <div style={{ backgroundColor: 'white', borderRadius: '28px', border: '1.5px solid #F1E4C9', overflow: 'hidden', boxShadow: '0 10px 25px rgba(0,0,0,0.03)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                    <thead style={{ backgroundColor: '#fcfcfd', borderBottom: '1.5px solid #F1E4C9' }}>
@@ -2506,16 +2545,16 @@ case 'board': {
                          <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>スポンサー / 代理店</th>
                          <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>案件名</th>
                          <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>OA日</th>
-                         <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>開始・終了時間</th>
+                         <th style={{ padding: '20px 32px', textAlign: 'left', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>放送枠時間</th>
                          <th style={{ padding: '20px 32px', textAlign: 'center', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>尺</th>
-                         <th style={{ padding: '20px 32px', textAlign: 'center', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>素材〆切</th>
+                         <th style={{ padding: '20px 32px', textAlign: 'center', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>素材締切</th>
                          <th style={{ padding: '20px 32px', textAlign: 'center', fontWeight: '950', color: '#8B4513', fontSize: '13px' }}>収録日</th>
                          <th style={{ padding: '20px 32px', textAlign: 'center', width: '120px' }}>操作</th>
                       </tr>
                    </thead>
                    <tbody>
                       {slotMoveProjects.length === 0 ? (
-                         <tr><td colSpan={8} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>対象の案件はありません</td></tr>
+                         <tr><td colSpan={8} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>該当する案件はありません</td></tr>
                       ) : slotMoveProjects.map(p => (
                          <tr key={p.id} style={{ borderBottom: '1px solid #F1E4C9' }}>
                             <td style={{ padding: '20px 32px' }}>
@@ -2564,31 +2603,81 @@ case 'board': {
 
       }
 
-      case 'calendar':
+      case 'calendar': {
+        const year = viewMonth.getFullYear();
+        const month = viewMonth.getMonth();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const firstDayOffset = new Date(year, month, 1).getDay();
+        
+        const handlePrevMonth = () => setViewMonth(new Date(year, month - 1, 1));
+        const handleNextMonth = () => setViewMonth(new Date(year, month + 1, 1));
+
         return (
-          <PageView title="放送カレンダー" desc="OA予定を管理します。" icon={Calendar} color="#F59E0B">
-             <div style={{ backgroundColor: 'white', borderRadius: '32px', border: '1.5px solid #F1E4C9', padding: '32px' }}>
-                <h3>2026年 5月</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px', backgroundColor: '#F1E4C9', marginTop: '20px' }}>
-                   {Array.from({ length: 35 }).map((_, i) => <div key={i} style={{ backgroundColor: 'white', minHeight: '80px', padding: '8px' }}>{i - 3 > 0 && i - 3 <= 31 ? i - 3 : ''}</div>)}
+          <PageView title="放送カレンダー" desc="全体の放送スケジュールをカレンダー形式で確認できます。" icon={Calendar} color="#f59e0b">
+             <div style={{ backgroundColor: 'white', borderRadius: '32px', border: '1.5px solid #F1E4C9', padding: '32px', boxShadow: '0 20px 50px rgba(62,39,35,0.05)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                      <h3 style={{ fontSize: '1.5rem', fontWeight: '950', color: '#3E2723', margin: 0 }}>{year}年 {month + 1}月</h3>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                         <button onClick={handlePrevMonth} style={{ padding: '8px 16px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: 'white', cursor: 'pointer' }}>&lt;</button>
+                         <button onClick={handleNextMonth} style={{ padding: '8px 16px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: 'white', cursor: 'pointer' }}>&gt;</button>
+                      </div>
+                   </div>
+                   <button onClick={() => setViewMonth(new Date())} style={{ padding: '10px 24px', borderRadius: '12px', border: '1.5px solid #F1E4C9', backgroundColor: 'white', fontWeight: '950', color: '#8B4513', cursor: 'pointer' }}>今日</button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px', backgroundColor: '#F1E4C9', border: '1.5px solid #F1E4C9', borderRadius: '16px', overflow: 'hidden' }}>
+                   {['日','月','火','水','木','金','土'].map(d => (
+                      <div key={d} style={{ backgroundColor: '#fcfcfd', padding: '12px', textAlign: 'center', fontWeight: '950', fontSize: '13px', color: '#8B4513' }}>{d}</div>
+                   ))}
+                   {Array.from({ length: firstDayOffset }).map((_, i) => <div key={`empty-${i}`} style={{ backgroundColor: 'white', minHeight: '120px' }} />)}
+                   {Array.from({ length: daysInMonth }).map((_, i) => {
+                      const day = i + 1;
+                      const dateStr = `${year}-${(month + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+                      const dayProjects = projects.filter(p => p.metadata?.oa_date === dateStr || (p.start_date <= dateStr && p.end_date >= dateStr));
+                      const daySlots = spreadsheetSlots.filter(s => s.date === dateStr);
+                      
+                      return (
+                         <div key={day} style={{ backgroundColor: 'white', minHeight: '120px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ fontSize: '14px', fontWeight: '950', color: '#3E2723', marginBottom: '4px' }}>{day}</div>
+                            
+                            {/* スプシ連携で取得した「番組枠カード」 */}
+                            {daySlots.map(slot => (
+                               <div key={slot.id} style={{ backgroundColor: '#fcfcfd', border: '1.5px solid #F1E4C9', borderRadius: '12px', padding: '8px', marginBottom: '4px', boxShadow: '0 2px 4px rgba(62,39,35,0.02)' }}>
+                                  <div style={{ fontSize: '11px', fontWeight: '950', color: '#3E2723', marginBottom: '2px' }}>{slot.programName}</div>
+                                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: '800', marginBottom: '8px' }}>{slot.time} ({slot.duration})</div>
+                                  <button 
+                                     onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        setActiveTab('slot-registration'); 
+                                     }}
+                                     style={{ width: '100%', padding: '6px', borderRadius: '8px', backgroundColor: '#3E2723', color: 'white', border: 'none', fontSize: '10px', fontWeight: '950', cursor: 'pointer', transition: 'all 0.2s' }}
+                                     onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#5D4037'}
+                                     onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#3E2723'}
+                                  >
+                                     枠登録詳細
+                                  </button>
+                               </div>
+                            ))}
+
+                            {/* 既存の案件表示 */}
+                            {dayProjects.slice(0, 3).map(p => (
+                               <div key={p.id} style={{ fontSize: '10px', padding: '4px 8px', borderRadius: '6px', backgroundColor: '#FFFBE6', border: '1px solid #FFD93D', color: '#8B4513', fontWeight: '800', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {p.name}
+                               </div>
+                            ))}
+                            {dayProjects.length > 3 && <div style={{ fontSize: '9px', color: '#94a3b8', textAlign: 'center' }}>他 {dayProjects.length - 3} 件</div>}
+                         </div>
+                      );
+                   })}
                 </div>
              </div>
           </PageView>
         );
-
-      case 'slot-management-table':
-        return (
-          <PageView title="スプシ連携設定" desc="Googleスプレッドシートと連携します。" icon={Link} color="#34D399">
-             <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>
-                <input type="text" placeholder="スプレッドシート URL" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1.5px solid #F1E4C9' }} />
-                <button style={{ marginTop: '16px', padding: '12px 24px', borderRadius: '8px', backgroundColor: '#34D399', color: 'white', border: 'none', fontWeight: '900' }}>接続確認</button>
-             </div>
-          </PageView>
-        );
+      }
 
       case 'admin-dashboard':
         return (
-          <PageView title="総合ダッシュボード" desc="システム全体のモニタリング。" icon={Monitor} color="#3E2723">
+          <PageView title="管理者ダッシュボード" desc="システムの全体管理を行います。" icon={Monitor} color="#3E2723">
              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
                 {['局数', 'ユーザー数', '案件数', '稼働率'].map(h => <div key={h} style={{ backgroundColor: 'white', padding: '20px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>{h}</div>)}
              </div>
@@ -2597,25 +2686,385 @@ case 'board': {
 
       case 'ai-rewrite-settings':
         return (
-          <PageView title="AIリライト設定" desc="AIのトンマナを学習させます。" icon={Settings} color="#10b981">
+          <PageView title="AI修正稿設定" desc="AIのパラメータを学習させます。" icon={Settings} color="#10b981">
              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>前稿</div>
-                <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>後稿</div>
+                <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>設定</div>
+                <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>設定</div>
+             </div>
+          </PageView>
+        );
+
+      case 'slot-management-table':
+        return (
+          <PageView title="スプシ連携設定" desc="Googleスプレッドシートから枠情報を自動同期します。" icon={Link} color="#34D399">
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                
+                {/* 上段: 連携設定 */}
+                <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', border: '1.5px solid #F1E4C9', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ backgroundColor: '#ecfdf5', padding: '10px', borderRadius: '12px', border: '1.5px solid #d1fae5' }}>
+                         <Link size={20} color="#059669" />
+                      </div>
+                      <SectionTitle title="Googleスプレッドシート連携" />
+                   </div>
+                   
+                   <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end' }}>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                         <label style={{ fontSize: '11px', fontWeight: '950', color: '#64748b', marginLeft: '4px' }}>スプレッドシート URL</label>
+                         <input 
+                            type="text" 
+                            value={spreadsheetUrl}
+                            onChange={(e) => setSpreadsheetUrl(e.target.value)}
+                            placeholder="https://docs.google.com/spreadsheets/d/..."
+                            style={{ 
+                               width: '100%', 
+                               padding: '16px 20px', 
+                               borderRadius: '16px', 
+                               border: '2px solid #F1E4C9', 
+                               fontSize: '14px', 
+                               fontWeight: '700',
+                               outline: 'none',
+                               backgroundColor: '#fcfcfc'
+                            }} 
+                         />
+                      </div>
+                      <button 
+                         onClick={() => alert('接続を確認しています...')}
+                         style={{ 
+                            padding: '16px 32px', 
+                            borderRadius: '16px', 
+                            backgroundColor: '#3E2723', 
+                            color: 'white', 
+                            border: 'none', 
+                            fontSize: '14px', 
+                            fontWeight: '950', 
+                            cursor: 'pointer' 
+                         }}
+                      >
+                         接続確認
+                      </button>
+                      <button 
+                         onClick={() => {
+                           alert('スプレッドシートから枠情報を同期しました。カレンダーに反映されます。');
+                           const y = new Date().getFullYear();
+                           const m = String(new Date().getMonth() + 1).padStart(2, '0');
+                           setSpreadsheetSlots([
+                             { id: 's1', date: `${y}-${m}-15`, programName: '朝のニュース', time: '08:00 - 08:30', duration: '30s' },
+                             { id: 's2', date: `${y}-${m}-18`, programName: '情報ライブ', time: '14:00 - 15:00', duration: '60s' },
+                             { id: 's3', date: `${y}-${m}-20`, programName: '深夜バラエティ', time: '24:00 - 24:30', duration: '15s' },
+                             { id: 's4', date: `${y}-${m}-25`, programName: '週末スポーツ', time: '18:00 - 19:00', duration: '60s' }
+                           ]);
+                         }}
+                         style={{ 
+                            padding: '16px 32px', 
+                            borderRadius: '16px', 
+                            backgroundColor: '#059669', 
+                            color: 'white', 
+                            border: 'none', 
+                            fontSize: '14px', 
+                            fontWeight: '950', 
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                         }}
+                      >
+                         <RefreshCw size={16} />
+                         今すぐ同期
+                      </button>
+                   </div>
+                </div>
+
+                {/* 下段: 列マッピング設定 */}
+                <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', border: '1.5px solid #F1E4C9', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                         <div style={{ backgroundColor: '#f3f0ff', padding: '10px', borderRadius: '12px', border: '1.5px solid #e0e7ff' }}>
+                            <Table size={20} color="#4f46e5" />
+                         </div>
+                         <SectionTitle title="データ列マッピング設定" />
+                      </div>
+                      <button 
+                         onClick={handleAddMapping}
+                         style={{ 
+                            padding: '10px 20px', 
+                            borderRadius: '12px', 
+                            backgroundColor: 'white', 
+                            border: '1.5px solid #F1E4C9', 
+                            fontSize: '13px', 
+                            fontWeight: '950', 
+                            color: '#3E2723',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            transition: 'all 0.2s'
+                         }}
+                         onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                         onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                      >
+                         <Plus size={16} />
+                         項目を追加
+                      </button>
+                   </div>
+
+                   <div style={{ border: '1.5px solid #F1E4C9', borderRadius: '20px', overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                         <thead>
+                            <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1.5px solid #F1E4C9' }}>
+                               <th style={{ padding: '16px 24px', textAlign: 'left', fontSize: '12px', fontWeight: '950', color: '#64748b' }}>反映項目</th>
+                               <th style={{ padding: '16px 24px', textAlign: 'left', fontSize: '12px', fontWeight: '950', color: '#64748b' }}>スプシ列名（A, B, C...）</th>
+                               <th style={{ padding: '16px 24px', textAlign: 'left', fontSize: '12px', fontWeight: '950', color: '#64748b' }}>サンプルプレビュー</th>
+                               <th style={{ padding: '16px 24px', width: '60px' }}></th>
+                            </tr>
+                         </thead>
+                         <tbody>
+                            {columnMappings.map((item) => (
+                               <tr key={item.id} style={{ borderBottom: '1px solid #F1E4C9' }}>
+                                  <td style={{ padding: '16px 24px' }}>
+                                     {item.isCustom ? (
+                                        <input 
+                                           type="text" 
+                                           value={item.label}
+                                           onChange={(e) => handleUpdateMapping(item.id, 'label', e.target.value)}
+                                           style={{ 
+                                              padding: '6px 12px', 
+                                              borderRadius: '8px', 
+                                              border: '1.5px solid #F1E4C9', 
+                                              fontSize: '14px', 
+                                              fontWeight: '900',
+                                              width: '160px',
+                                              outline: 'none'
+                                           }}
+                                        />
+                                     ) : (
+                                        <span style={{ fontSize: '14px', fontWeight: '900', color: '#3E2723' }}>{item.label}</span>
+                                     )}
+                                  </td>
+                                  <td style={{ padding: '16px 24px' }}>
+                                     <select 
+                                        value={item.column}
+                                        onChange={(e) => handleUpdateMapping(item.id, 'column', e.target.value)}
+                                        style={{ 
+                                           padding: '8px 16px', 
+                                           borderRadius: '10px', 
+                                           border: '1.5px solid #F1E4C9', 
+                                           fontSize: '14px', 
+                                           fontWeight: '800',
+                                           backgroundColor: 'white',
+                                           outline: 'none'
+                                        }}
+                                     >
+                                        {'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(letter => (
+                                           <option key={letter} value={letter}>列 {letter}</option>
+                                        ))}
+                                     </select>
+                                  </td>
+                                  <td style={{ padding: '16px 24px', fontSize: '13px', color: '#94a3b8', fontStyle: 'italic' }}>
+                                     {item.sample}
+                                  </td>
+                                  <td style={{ padding: '16px 24px' }}>
+                                     {item.isCustom && (
+                                        <button 
+                                           onClick={() => handleRemoveMapping(item.id)}
+                                           style={{ border: 'none', backgroundColor: 'transparent', cursor: 'pointer', color: '#ef4444' }}
+                                        >
+                                           <Trash2 size={16} />
+                                        </button>
+                                     )}
+                                  </td>
+                               </tr>
+                            ))}
+                         </tbody>
+                      </table>
+                   </div>
+                   
+                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+                      <button 
+                         onClick={() => alert('設定を保存しました。')}
+                         style={{ 
+                            padding: '14px 40px', 
+                            borderRadius: '14px', 
+                            backgroundColor: '#3E2723', 
+                            color: 'white', 
+                            border: 'none', 
+                            fontSize: '14px', 
+                            fontWeight: '950', 
+                            cursor: 'pointer'
+                         }}
+                      >
+                         マッピング設定を保存
+                      </button>
+                   </div>
+                </div>
+
              </div>
           </PageView>
         );
 
       case 'ai-narration-settings':
         return (
-          <PageView title="AIナレーション生成" desc="音声を自動生成します。" icon={Mic} color="#6366f1">
+          <PageView title="AIナレーション生成" desc="音声を生成します。" icon={Mic} color="#6366f1">
              <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>音声設定...</div>
           </PageView>
         );
 
       case 'inbox':
         return (
-          <PageView title="メール依頼受理" desc="メールから案件を取り込みます。" icon={Inbox} color="#8B4513">
-             <div style={{ backgroundColor: 'white', borderRadius: '24px', border: '1.5px solid #F1E4C9', height: '400px' }}>メール一覧...</div>
+          <PageView title="メール依頼受領" desc="メール本文からの案件作成、および受信メールの確認を行います。" icon={Inbox} color="#8B4513">
+             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', alignItems: 'start' }}>
+                
+                {/* 左側: 手動貼り付けパネル */}
+                <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', border: '1.5px solid #F1E4C9', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ backgroundColor: '#FFFBE6', padding: '10px', borderRadius: '12px', border: '1.5px solid #FFD93D' }}>
+                         <FileText size={20} color="#8B4513" />
+                      </div>
+                      <SectionTitle title="メール本文から案件作成" />
+                   </div>
+                   <p style={{ fontSize: '13px', color: '#64748b', margin: 0, fontWeight: '800' }}>
+                      届いたメールの本文を以下に貼り付けてください。内容を解析して案件を作成します。
+                   </p>
+                   <textarea 
+                      value={pasteText}
+                      onChange={(e) => setPasteText(e.target.value)}
+                      placeholder="メール本文をここにペースト..."
+                      style={{ 
+                         width: '100%', 
+                         height: '400px', 
+                         padding: '24px', 
+                         borderRadius: '20px', 
+                         border: '2px solid #F1E4C9', 
+                         fontSize: '14px', 
+                         fontWeight: '700', 
+                         lineHeight: '1.6',
+                         resize: 'none',
+                         outline: 'none',
+                         backgroundColor: '#fcfcfc'
+                      }}
+                   />
+                   <button 
+                      onClick={async () => {
+                        if (!pasteText.trim()) {
+                          alert('メール本文を入力してください。');
+                          return;
+                        }
+                        try {
+                          // 簡易的なAI解析（正規表現ベースのプロトタイプ実装）
+                          // 実際のシステムではここでOpenAI等のAPIを呼び出します
+                          const parsedSponsor = pasteText.match(/スポンサー[:：]\s*(.+)/)?.[1] || '新規スポンサー';
+                          const parsedName = pasteText.match(/案件名[:：]\s*(.+)/)?.[1] || '新規パブリシティ案件';
+                          const parsedStartDate = pasteText.match(/開始日[:：]\s*([\d/]+)/)?.[1] || '';
+                          const parsedEndDate = pasteText.match(/終了日[:：]\s*([\d/]+)/)?.[1] || '';
+                          
+                          const newProjectData = {
+                             sponsor_name: parsedSponsor,
+                             name: parsedName,
+                             start_date: parsedStartDate,
+                             end_date: parsedEndDate,
+                             status: 'requesting', // 初期ステータス（放送局側が受領した状態）
+                             metadata: {
+                                source: 'email_import',
+                                originalText: pasteText,
+                                ba: pasteText.match(/代理店[:：]\s*(.+)/)?.[1] || '',
+                                pub_types: ['その他']
+                             }
+                          };
+                          
+                          setIsSubmitting(true);
+                          await api.createProject(newProjectData);
+                          const updated = await api.getProjects();
+                          setProjects(updated);
+                          
+                          alert(`メールから案件「${parsedName}」を自動作成しました。`);
+                          setPasteText(''); // クリア
+                          setActiveTab('dashboard'); // ダッシュボードへ戻る
+                        } catch (err) {
+                          console.error(err);
+                          alert('案件の自動作成に失敗しました。詳細: ' + (err.message || err));
+                        } finally {
+                          setIsSubmitting(false);
+                        }
+                      }}
+                      disabled={isSubmitting}
+                      style={{ 
+                         width: '100%', 
+                         padding: '18px', 
+                         borderRadius: '16px', 
+                         backgroundColor: '#3E2723', 
+                         color: 'white', 
+                         border: 'none', 
+                         fontSize: '15px', 
+                         fontWeight: '950', 
+                         cursor: 'pointer',
+                         display: 'flex',
+                         alignItems: 'center',
+                         justifyContent: 'center',
+                         gap: '10px'
+                      }}
+                   >
+                      <Zap size={18} color="#FFD93D" />
+                      本文から案件を作成する
+                   </button>
+                </div>
+
+                {/* 右側: 受信メール一覧パネル */}
+                <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', border: '1.5px solid #F1E4C9', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                         <div style={{ backgroundColor: '#eef2ff', padding: '10px', borderRadius: '12px', border: '1.5px solid #c7d2fe' }}>
+                            <Mail size={20} color="#4338ca" />
+                         </div>
+                         <SectionTitle title="受信メール一覧" />
+                      </div>
+                      <div style={{ padding: '6px 12px', borderRadius: '10px', backgroundColor: '#f1f5f9', fontSize: '11px', fontWeight: '950', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                         pudding-receipt@system.jp
+                      </div>
+                   </div>
+
+                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '550px', overflowY: 'auto', paddingRight: '4px' }}>
+                      {(!inboxEmails || inboxEmails.length === 0) ? (
+                         <div style={{ textAlign: 'center', padding: '48px', color: '#94a3b8', fontWeight: '800' }}>受信メールはありません。</div>
+                      ) : inboxEmails.map((email) => (
+                         <div 
+                            key={email?.id || Math.random()} 
+                            style={{ 
+                               padding: '20px', 
+                               borderRadius: '20px', 
+                               border: '1.5px solid #F1E4C9', 
+                               backgroundColor: email?.status === 'new' ? '#FFFBE640' : 'white',
+                               transition: 'all 0.2s',
+                               cursor: 'pointer'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.borderColor = '#FFD93D'}
+                            onMouseOut={(e) => e.currentTarget.style.borderColor = '#F1E4C9'}
+                         >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                               <div style={{ fontSize: '11px', fontWeight: '950', color: '#8B4513' }}>{email?.from}</div>
+                               <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '800' }}>{email?.date}</div>
+                            </div>
+                            <div style={{ fontSize: '15px', fontWeight: '950', color: '#3E2723', marginBottom: '12px' }}>
+                               {email?.status === 'new' && <span style={{ marginRight: '8px', color: '#e60012', fontSize: '10px', verticalAlign: 'middle' }}>●</span>}
+                               {email?.subject}
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                               <button 
+                                  onClick={(e) => { e.stopPropagation(); alert(email?.body || '本文なし'); }}
+                                  style={{ flex: 1, padding: '10px', borderRadius: '10px', backgroundColor: 'white', border: '1.5px solid #e2e8f0', fontSize: '12px', fontWeight: '900', cursor: 'pointer' }}
+                               >内容表示</button>
+                               <button 
+                                  onClick={(e) => { e.stopPropagation(); setActiveTab('new-request'); }}
+                                  style={{ flex: 1.5, padding: '10px', borderRadius: '10px', backgroundColor: '#3E2723', color: 'white', border: 'none', fontSize: '12px', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                               >
+                                  <Plus size={14} /> 案件作成
+                               </button>
+                            </div>
+                         </div>
+                      ))}
+                   </div>
+                </div>
+
+             </div>
           </PageView>
         );
 
@@ -2623,7 +3072,7 @@ case 'board': {
         return <ChatView activeChannel={activeChatChannel} />;
 
       case 'select-stations': {
-        const networks = ['N系', 'J系', 'CX系', 'EX系', 'TX系', '独U'];
+        const networks = ['N局', 'J局', 'CX局', 'EX局', 'TX局', '他U'];
         const prefectures = ['北海道', '青森', '岩手', '宮城', '秋田', '山形', '福島', '茨城', '栃木', '群馬', '埼玉', '千葉', '東京', '神奈川', '新潟', '富山', '石川', '福井', '山梨', '長野', '岐阜', '静岡', '愛知', '三重', '滋賀', '京都', '大阪', '兵庫', '奈良', '和歌山', '鳥取', '島根', '岡山', '広島', '山口', '徳島', '香川', '愛媛', '高知', '福岡', '佐賀', '長崎', '熊本', '大分', '宮崎', '鹿児島', '沖縄'];
         const toggleStation = (pref, net) => {
           const id = `${pref}-${net}`;
@@ -2634,12 +3083,12 @@ case 'board': {
           }
         };
         return (
-          <PageView title="依頼局選択" desc="放送局を選択してください。" icon={Monitor} color="#3E2723" 
-            action={<button onClick={() => setActiveTab('new-request')} style={{ padding: '12px 24px', borderRadius: '16px', backgroundColor: '#3E2723', color: 'white', fontWeight: '950', border: 'none' }}>保存して戻る</button>}
+          <PageView title="放送局選択" desc="放送局を選択してください。" icon={Monitor} color="#3E2723" 
+            action={<button onClick={() => setActiveTab('new-request')} style={{ padding: '12px 24px', borderRadius: '16px', backgroundColor: '#3E2723', color: 'white', fontWeight: '950', border: 'none' }}>保存して作成</button>}
           >
              <div style={{ backgroundColor: 'white', borderRadius: '32px', border: '1.5px solid #F1E4C9', overflow: 'hidden', height: 'calc(100vh - 250px)', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ padding: '16px 32px', backgroundColor: '#FFFBE6', borderBottom: '1.5px solid #F1E4C9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                   <div style={{ fontSize: '14px', fontWeight: '950', color: '#8B4513' }}>選択済み: {selectedStations.length} 局</div>
+                   <div style={{ fontSize: '14px', fontWeight: '950', color: '#8B4513' }}>選択数: {selectedStations.length} 局</div>
                    <div style={{ display: 'flex', gap: '8px' }}>
                       <button onClick={() => {
                          const all = [];
@@ -2648,9 +3097,9 @@ case 'board': {
                       }} style={{ padding: '8px 16px', borderRadius: '10px', backgroundColor: 'white', border: '1px solid #F1E4C9', fontSize: '12px', fontWeight: '900' }}>全選択</button>
                       <button onClick={() => {
                          const filtered = [];
-                         prefectures.forEach(p => networks.filter(n => n !== '独U').forEach(n => filtered.push(`${p}-${n}`)));
+                         prefectures.forEach(p => networks.filter(n => n !== '他U').forEach(n => filtered.push(`${p}-${n}`)));
                          setSelectedStations(filtered);
-                      }} style={{ padding: '8px 16px', borderRadius: '10px', backgroundColor: 'white', border: '1px solid #F1E4C9', fontSize: '12px', fontWeight: '900' }}>全選択（独U除外）</button>
+                      }} style={{ padding: '8px 16px', borderRadius: '10px', backgroundColor: 'white', border: '1px solid #F1E4C9', fontSize: '12px', fontWeight: '900' }}>全選択(他U除く)</button>
                       <button onClick={() => setSelectedStations([])} style={{ padding: '8px 16px', borderRadius: '10px', backgroundColor: 'white', border: '1px solid #F1E4C9', fontSize: '12px', fontWeight: '900' }}>全解除</button>
                    </div>
                 </div>
@@ -2689,18 +3138,18 @@ case 'board': {
       case 'ba-settings': {
         const agencyOrgs = [...new Set(puddingUsers.filter(u => u.role === 'agency' || u.role === 'admin').map(u => u.org))];
         return (
-          <PageView title="BA組織のマッピング" desc="自社組織とBA組織の連携を設定します。" icon={Monitor} color="#3E2723">
+          <PageView title="BA管理マッピング" desc="放送局とBAの紐付けを設定します。" icon={Monitor} color="#3E2723">
              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px' }}>
                 <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>
-                   <SectionTitle title="自社組織選択" />
+                   <SectionTitle title="放送局選択" />
                    <div style={{ display: 'grid', gap: '8px' }}>
-                      {['本社', '大阪支社', '名古屋支社'].map(o => (
+                      {['日本テレビ', '大宮テレビ', '京都広告社'].map(o => (
                          <div key={o} onClick={() => setSelectedMaId(o)} style={{ padding: '16px', borderRadius: '16px', backgroundColor: selectedMaId === o ? '#3E2723' : '#fcfcfc', color: selectedMaId === o ? 'white' : '#3E2723', cursor: 'pointer', fontWeight: '950', border: '1px solid #F1E4C9' }}>{o}</div>
                       ))}
                    </div>
                 </div>
                 <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '24px', border: '1.5px solid #F1E4C9' }}>
-                   <SectionTitle title="連携BA組織設定" />
+                   <SectionTitle title="紐付けBA設定" />
                    {selectedMaId ? (
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
                          {agencyOrgs.filter(o => o !== selectedMaId).map(o => (
@@ -2730,29 +3179,27 @@ case 'board': {
       {renderContent()}
 
       {activeModal === 'slot-edit' && selectedRequest && (
-          <Modal title="枠情報変更" onClose={() => setActiveModal(null)} width="800px">
+          <Modal title="詳細情報編集" onClose={() => setActiveModal(null)} width="800px" hideFooter={true}>
              <div style={{ display: 'grid', gap: '32px' }}>
-                {/* 上段: 案件情報 */}
                 <div style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '20px', border: '1.5px solid #e2e8f0' }}>
                    <SectionTitle title="案件情報" />
                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.5fr', gap: '20px' }}>
                       <FormItem label="スポンサー" value={selectedRequest.sponsor_name} />
                       <FormItem label="案件名" value={selectedRequest.name} />
-                      <FormItem label="依頼期間" value={`${selectedRequest.start_date || '---'} 〜 ${selectedRequest.end_date || '---'}`} />
+                      <FormItem label="放送期間" value={`${selectedRequest.start_date || '---'} 〜 ${selectedRequest.end_date || '---'}`} />
                    </div>
                 </div>
 
-                {/* 下段: 枠情報入力 */}
                 <div>
-                   <SectionTitle title="枠情報入力" />
+                   <SectionTitle title="詳細情報入力" />
                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                       <div className="input-group">
                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>OA日</label>
                          <input type="date" value={formOADate} onChange={(e) => setFormOADate(e.target.value)} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700' }} />
                       </div>
                       <div className="input-group">
-                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>開始終了時間</label>
-                         <input type="text" value={formTimeRange} onChange={(e) => setFormTimeRange(e.target.value)} placeholder="例: 19:00〜19:30" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700' }} />
+                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>放送枠時間</label>
+                         <input type="text" value={formTimeRange} onChange={(e) => setFormTimeRange(e.target.value)} placeholder="例: 19:00 〜 9:30" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700' }} />
                       </div>
                       <div className="input-group">
                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>尺 (秒)</label>
@@ -2763,7 +3210,7 @@ case 'board': {
                          </select>
                       </div>
                       <div className="input-group">
-                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>素材〆切</label>
+                         <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>素材締切</label>
                          <input type="date" value={formMaterialDeadlineLimit} onChange={(e) => setFormMaterialDeadlineLimit(e.target.value)} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700' }} />
                       </div>
                       <div className="input-group">
@@ -2782,15 +3229,15 @@ case 'board': {
        )}
 
       {activeModal === 'bulk-change' && (
-         <Modal title="一括変更" onClose={() => setActiveModal(null)}>
+         <Modal title="一括変更" onClose={() => setActiveModal(null)} hideFooter={true}>
             <div style={{ display: 'grid', gap: '24px' }}>
-               <p style={{ fontSize: '14px', color: '#64748b' }}>選択した{selectedBulkProjectIds.length}件の案件を一括で更新します。変更したい項目のみ入力してください。</p>
+               <p style={{ fontSize: '14px', color: '#64748b' }}>選択された{selectedBulkProjectIds.length}件の案件を一括でステータス変更します。変更したい項目のみ入力してください。</p>
                <div className="input-group">
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>案件名</label>
                   <input type="text" value={bulkChangeName} onChange={(e) => setBulkChangeName(e.target.value)} placeholder="一括設定する案件名" style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '800' }} />
                </div>
                <div className="input-group">
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>依頼期間</label>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '8px' }}>放送期間</label>
                   <div onClick={() => setActiveModal('bulk-period')} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
                      <Calendar size={18} color="#8B4513" />
                      <span style={{ color: bulkChangeDateRange.start ? '#3E2723' : '#94a3b8' }}>
@@ -2799,31 +3246,97 @@ case 'board': {
                   </div>
                </div>
                <div className="input-group">
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '12px' }}>素材搬入開始日</label>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '12px' }}>素材搬入期限</label>
                   <input type="date" value={bulkChangeMaterialDeadline} onChange={(e) => setBulkChangeMaterialDeadline(e.target.value)} style={{ width: '100%', padding: '14px 20px', borderRadius: '16px', border: '2px solid #F1E4C9', fontSize: '15px', fontWeight: '700' }} />
                </div>
                <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
                   <button onClick={() => setActiveModal(null)} style={{ flex: 1, padding: '14px', borderRadius: '16px', backgroundColor: 'white', border: '2px solid #F1E4C9', fontWeight: '950', cursor: 'pointer' }}>キャンセル</button>
-                  <button onClick={handleBulkChange} disabled={isSubmitting} style={{ flex: 1, padding: '14px', borderRadius: '16px', backgroundColor: '#3E2723', color: 'white', border: 'none', fontWeight: '950', cursor: isSubmitting ? 'wait' : 'pointer' }}>{isSubmitting ? '更新中...' : '変更を適用する'}</button>
+                  <button onClick={handleBulkChange} disabled={isSubmitting} style={{ flex: 1, padding: '14px', borderRadius: '16px', backgroundColor: '#3E2723', color: 'white', border: 'none', fontWeight: '950', cursor: isSubmitting ? 'wait' : 'pointer' }}>{isSubmitting ? '変更中...' : '変更を実行する'}</button>
                </div>
             </div>
          </Modal>
       )}
 
       {activeModal === 'bulk-cancel' && (
-         <Modal title="一括取消の確認" onClose={() => setActiveModal(null)}>
+         <Modal title="一括取り消しの確認" onClose={() => setActiveModal(null)} hideFooter={true}>
             <div style={{ textAlign: 'center', padding: '12px 0' }}>
                <div style={{ color: '#EF4444', marginBottom: '20px' }}>
                   <Trash2 size={64} style={{ margin: '0 auto' }} />
                </div>
                <h3 style={{ fontSize: '1.25rem', fontWeight: '950', color: '#3E2723', marginBottom: '12px' }}>本当に取り消しますか？</h3>
                <p style={{ fontSize: '15px', color: '#64748b', lineHeight: '1.6' }}>
-                  選択した{selectedBulkProjectIds.length}件の案件を取り消します。<br/>
-                  この操作は取り消せません。よろしいですか？
+                  選択された{selectedBulkProjectIds.length}件の案件を取り消します。<br/>
+                  この作業は取り消せません。よろしいですか？
                </p>
                <div style={{ display: 'flex', gap: '16px', marginTop: '40px' }}>
                   <button onClick={() => setActiveModal(null)} style={{ flex: 1, padding: '16px', borderRadius: '16px', backgroundColor: 'white', border: '2px solid #F1E4C9', fontWeight: '950', cursor: 'pointer' }}>キャンセル</button>
-                  <button onClick={handleBulkCancel} disabled={isSubmitting} style={{ flex: 1, padding: '16px', borderRadius: '16px', backgroundColor: '#EF4444', color: 'white', border: 'none', fontWeight: '950', cursor: isSubmitting ? 'wait' : 'pointer' }}>{isSubmitting ? '処理中...' : '取り消しを確定する'}</button>
+                  <button onClick={handleBulkCancel} disabled={isSubmitting} style={{ flex: 1, padding: '16px', borderRadius: '16px', backgroundColor: '#EF4444', color: 'white', border: 'none', fontWeight: '950', cursor: isSubmitting ? 'wait' : 'pointer' }}>{isSubmitting ? '処理中...' : '取り消しを実行する'}</button>
+               </div>
+            </div>
+         </Modal>
+      )}
+
+
+      {activeModal === 'bulk-recording-upload' && (
+         <Modal title="完パケファイル一括アップロード" onClose={() => setActiveModal(null)} width="700px" hideFooter={true}>
+            <div style={{ display: 'grid', gap: '32px' }}>
+               <div style={{ backgroundColor: '#f8fafc', padding: '24px', borderRadius: '20px', border: '1.5px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                     <div style={{ width: '4px', height: '16px', backgroundColor: '#FFD93D', borderRadius: '2px' }} />
+                     <h4 style={{ fontSize: '15px', fontWeight: '950', color: '#3E2723', margin: 0 }}>ファイル命名ルール</h4>
+                  </div>
+                  <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '13px', color: '#3E2723', lineHeight: '1.8' }}>
+                     <div style={{ fontWeight: '800', marginBottom: '8px', color: '#8B4513' }}>以下の形式でファイル名を指定してください：</div>
+                     <code style={{ display: 'block', backgroundColor: '#f1f5f9', padding: '12px', borderRadius: '8px', fontSize: '14px', fontWeight: '700', color: '#0f172a', marginBottom: '12px', border: '1px solid #cbd5e1' }}>
+                        案件名_放送局名_放送日.mp4
+                     </code>
+                     <div style={{ fontSize: '12px', color: '#64748b' }}>
+                        例：春のキャンペーン_放送局A_20260515.mp4<br/>
+                        ※放送日はYYYYMMDD形式で入力してください。
+                     </div>
+                  </div>
+               </div>
+
+               <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                     <div style={{ width: '4px', height: '16px', backgroundColor: '#10b981', borderRadius: '2px' }} />
+                     <h4 style={{ fontSize: '15px', fontWeight: '950', color: '#3E2723', margin: 0 }}>アップロード</h4>
+                  </div>
+                  <div style={{ 
+                     border: '2px dashed #cbd5e1', 
+                     borderRadius: '20px', 
+                     padding: '40px', 
+                     textAlign: 'center',
+                     backgroundColor: '#f8fafc',
+                     cursor: 'pointer',
+                     transition: 'all 0.2s'
+                  }}
+                  onClick={() => document.getElementById('bulk-recording-input')?.click()}
+                  onMouseOver={(e) => { e.currentTarget.style.borderColor = '#10b981'; e.currentTarget.style.backgroundColor = '#ecfdf5'; }}
+                  onMouseOut={(e) => { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.backgroundColor = '#f8fafc'; }}
+                  >
+                     <Upload size={48} color="#94a3b8" style={{ marginBottom: '16px' }} />
+                     <div style={{ fontSize: '15px', fontWeight: '800', color: '#3E2723', marginBottom: '4px' }}>ファイルを選択またはドラッグ＆ドロップ</div>
+                     <div style={{ fontSize: '12px', color: '#94a3b8' }}>対応形式: MP4, MOV, MP3, WAV</div>
+                     <input 
+                        id="bulk-recording-input"
+                        type="file" 
+                        multiple 
+                        accept="video/*,audio/*"
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                           const files = Array.from(e.target.files);
+                           if (files.length > 0) alert(`${files.length}件のファイルを選択しました。`);
+                        }}
+                     />
+                  </div>
+               </div>
+
+               <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
+                  <button onClick={() => setActiveModal(null)} style={{ flex: 1, padding: '16px', borderRadius: '16px', backgroundColor: 'white', border: '2px solid #F1E4C9', fontWeight: '950', cursor: 'pointer' }}>キャンセル</button>
+                  <button onClick={() => alert('一括アップロード機能は現在開発中です。')} style={{ flex: 1.5, padding: '16px', borderRadius: '16px', backgroundColor: '#10b981', color: 'white', border: 'none', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                     <Send size={18} /> 一括アップロード
+                  </button>
                </div>
             </div>
          </Modal>
@@ -2839,7 +3352,7 @@ case 'board': {
          const handleNextMonth = () => setViewMonth(new Date(year, month + 1, 1));
 
          return (
-            <Modal title="依頼期間を一括選択" onClose={() => setActiveModal('bulk-change')} width="400px">
+            <Modal title="期間を選択" onClose={() => setActiveModal('bulk-change')} width="400px" hideFooter={true}>
                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                   <button onClick={handlePrevMonth} style={{ background: 'none', border: '1.5px solid #F1E4C9', borderRadius: '8px', padding: '4px 12px', cursor: 'pointer', fontWeight: '950', color: '#8B4513' }}>&lt;</button>
                   <div style={{ fontSize: '18px', fontWeight: '950', color: '#8B4513' }}>
@@ -2896,7 +3409,6 @@ case 'board': {
       })()}
 
       {activeModal === 'period' && (() => {
-
          const year = viewMonth.getFullYear();
          const month = viewMonth.getMonth();
          const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -2916,9 +3428,7 @@ case 'board': {
                </div>
                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px' }}>
                   {['日','月','火','水','木','金','土'].map(d => <div key={d} style={{ textAlign: 'center', fontWeight: '950', fontSize: '12px', color: '#64748b' }}>{d}</div>)}
-                  
                   {Array.from({ length: firstDayOffset }).map((_, i) => <div key={`empty-${i}`} />)}
-
                   {Array.from({ length: daysInMonth }).map((_, i) => {
                      const day = i + 1;
                      const dateStr = `${year}-${(month + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
@@ -2926,38 +3436,35 @@ case 'board': {
                      const isInRange = requestDateRange.start && requestDateRange.end && dateStr > requestDateRange.start && dateStr < requestDateRange.end;
                      
                      return (
-                       <div 
-                         key={day} 
-                         onClick={() => {
-                           if (!requestDateRange.start || (requestDateRange.start && requestDateRange.end)) {
-                             setRequestDateRange({ start: dateStr, end: '' });
-                           } else {
-                             if (dateStr < requestDateRange.start) {
-                               setRequestDateRange({ start: dateStr, end: requestDateRange.start });
-                             } else {
-                               setRequestDateRange({ ...requestDateRange, end: dateStr });
-                             }
-                           }
-                         }}
-                         style={{ 
-                           textAlign: 'center', padding: '10px', borderRadius: '12px', cursor: 'pointer',
-                           backgroundColor: isSelected ? '#FFD93D' : isInRange ? '#FFFBE6' : 'transparent',
-                           fontWeight: isSelected ? '950' : 'normal',
-                           border: isSelected ? '1.5px solid #8B4513' : 'none',
-                           fontSize: '14px',
-                           transition: 'all 0.2s'
-                         }}
-                         onMouseOver={(e) => { if(!isSelected) e.currentTarget.style.backgroundColor = '#f1f5f9'; }}
-                         onMouseOut={(e) => { if(!isSelected) e.currentTarget.style.backgroundColor = isInRange ? '#FFFBE6' : 'transparent'; }}
-                       >
-                         {day}
-                       </div>
+                        <div 
+                          key={day} 
+                          onClick={() => {
+                            if (!requestDateRange.start || (requestDateRange.start && requestDateRange.end)) {
+                              setRequestDateRange({ start: dateStr, end: '' });
+                            } else {
+                              if (dateStr < requestDateRange.start) {
+                                setRequestDateRange({ start: dateStr, end: requestDateRange.start });
+                              } else {
+                                setRequestDateRange({ ...requestDateRange, end: dateStr });
+                              }
+                            }
+                          }}
+                          style={{ 
+                            textAlign: 'center', padding: '10px', borderRadius: '12px', cursor: 'pointer',
+                            backgroundColor: isSelected ? '#FFD93D' : isInRange ? '#FFFBE6' : 'transparent',
+                            fontWeight: isSelected ? '950' : 'normal',
+                            border: isSelected ? '1.5px solid #8B4513' : 'none',
+                            fontSize: '14px',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          {day}
+                        </div>
                      );
                   })}
                </div>
                <div style={{ marginTop: '20px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
-                  開始日と終了日を順にクリックして選択してください。<br/>
-                  月をまたぐ場合は、次月へ移動して終了日を選択してください。
+                  開始日と終了日を順にクリックして選択してください。
                </div>
             </Modal>
          );
@@ -2979,7 +3486,7 @@ case 'board': {
       )}
 
       {(activeModal === 'reviewer-rewrite' || activeModal === 'reviewer-recording') && (
-         <Modal title="共有者を選択" onClose={() => setActiveModal(null)}>
+         <Modal title="審査担当者を選択" onClose={() => setActiveModal(null)}>
             <div style={{ display: 'grid', gap: '12px' }}>
                {puddingUsers.map(u => (
                   <button key={u.id} onClick={() => {
@@ -3022,7 +3529,7 @@ case 'board': {
 
          const isOADate = activeModal === 'formOADate';
          const isRewriteDeadline = activeModal === 'rewrite-deadline';
-         const title = isOADate ? "OA日を選択" : (isRewriteDeadline ? "修正〆切を選択" : "素材搬入予定日を選択");
+         const title = isOADate ? "OA日を選択" : (isRewriteDeadline ? "修正稿〆切を選択" : "素材搬入予定日を選択");
 
          return (
             <Modal title={title} onClose={() => setActiveModal(null)} width="400px">
@@ -3047,7 +3554,6 @@ case 'board': {
                         if (start && dateStr < start) isDisabled = true;
                         if (end && dateStr > end) isDisabled = true;
                      } else if (isRewriteDeadline) {
-                        // 修正〆切は収録日以前である必要がある
                         const recordingDate = selectedRequest?.metadata?.recording_date;
                         if (recordingDate && dateStr > recordingDate) isDisabled = true;
                      } else {
@@ -3086,7 +3592,7 @@ case 'board': {
                   })}
                </div>
                <div style={{ marginTop: '20px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
-                  {isOADate ? "依頼期間内（" + selectedRequest?.start_date + " 〜 " + selectedRequest?.end_date + "）の日付のみ選択可能です。" : (isRewriteDeadline ? (selectedRequest?.metadata?.recording_date ? "収録日（" + selectedRequest.metadata.recording_date + "）以前の日付を選択してください。" : "修正〆切日を選択してください。") : "素材搬入開始（" + (selectedRequest?.metadata?.material_start_date || selectedRequest?.metadata?.material_deadline) + "）以降の日付のみ選択可能です。")}
+                  {isOADate ? `依頼期間内（${selectedRequest?.start_date} 〜 ${selectedRequest?.end_date}）の日付のみ選択可能です。` : (isRewriteDeadline ? (selectedRequest?.metadata?.recording_date ? `収録日（${selectedRequest.metadata.recording_date}）以前の日付を選択してください。` : "修正稿〆切日を選択してください") : `素材搬入開始（${selectedRequest?.metadata?.material_start_date || selectedRequest?.metadata?.material_deadline}）以降の日付のみ選択可能です。`)}
                </div>
             </Modal>
          );

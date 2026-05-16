@@ -114,8 +114,8 @@ const TimeSlotRegView = ({ onBack }) => {
     }
   };
 
-  const labelStyle = { display: 'block', fontSize: '13px', fontWeight: '900', color: '#64748b', marginBottom: '10px' };
-  const fieldStyle = { width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #e2e8f0', fontWeight: '700', fontSize: '15px', outline: 'none' };
+  const labelStyle = { display: 'block', fontSize: '13px', fontWeight: '950', color: '#8B4513', marginBottom: '10px' };
+  const fieldStyle = { width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', fontWeight: '800', fontSize: '15px', outline: 'none', backgroundColor: '#fcfcfc' };
 
   return (
     <div className="animate-fade" style={{ padding: '32px', maxWidth: '1200px', margin: '0 auto' }}>
@@ -261,13 +261,13 @@ const TimeSlotRegView = ({ onBack }) => {
                 
                 <div style={{ flex: 1 }}>
                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: '16px', border: '1.5px solid', borderColor: visibility === 'all' ? 'var(--tacos-red)' : '#e2e8f0', backgroundColor: visibility === 'all' ? 'rgba(230,0,18,0.02)' : 'transparent', cursor: 'pointer' }}>
-                         <input type="radio" name="visibility" checked={visibility === 'all'} onChange={() => setVisibility('all')} style={{ width: '18px', height: '18px', accentColor: 'var(--tacos-red)' }} />
-                         <div style={{ fontSize: '14px', fontWeight: '900', color: visibility === 'all' ? 'var(--tacos-red)' : '#1e293b' }}>全代理店に公開</div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: '16px', border: '1.5px solid', borderColor: visibility === 'all' ? '#8B4513' : '#F1E4C9', backgroundColor: visibility === 'all' ? '#FFFBE6' : 'transparent', cursor: 'pointer' }}>
+                         <input type="radio" name="visibility" checked={visibility === 'all'} onChange={() => setVisibility('all')} style={{ width: '18px', height: '18px', accentColor: '#8B4513' }} />
+                         <div style={{ fontSize: '14px', fontWeight: '950', color: visibility === 'all' ? '#3E2723' : '#1e293b' }}>全代理店に公開</div>
                       </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: '16px', border: '1.5px solid', borderColor: visibility === 'limited' ? 'var(--tacos-red)' : '#e2e8f0', backgroundColor: visibility === 'limited' ? 'rgba(230,0,18,0.02)' : 'transparent', cursor: 'pointer' }}>
-                         <input type="radio" name="visibility" checked={visibility === 'limited'} onChange={() => setVisibility('limited')} style={{ width: '18px', height: '18px', accentColor: 'var(--tacos-red)' }} />
-                         <div style={{ fontSize: '14px', fontWeight: '900', color: visibility === 'limited' ? 'var(--tacos-red)' : '#1e293b' }}>特定の代理店に限定</div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: '16px', border: '1.5px solid', borderColor: visibility === 'limited' ? '#8B4513' : '#F1E4C9', backgroundColor: visibility === 'limited' ? '#FFFBE6' : 'transparent', cursor: 'pointer' }}>
+                         <input type="radio" name="visibility" checked={visibility === 'limited'} onChange={() => setVisibility('limited')} style={{ width: '18px', height: '18px', accentColor: '#8B4513' }} />
+                         <div style={{ fontSize: '14px', fontWeight: '950', color: visibility === 'limited' ? '#3E2723' : '#1e293b' }}>特定の代理店に限定</div>
                       </label>
 
                       {visibility === 'limited' && (
@@ -298,7 +298,7 @@ const TimeSlotRegView = ({ onBack }) => {
                    </div>
                 </div>
 
-                <button onClick={handleSaveSlot} style={{ width: '100%', padding: '18px', borderRadius: '16px', border: 'none', backgroundColor: 'var(--tacos-red)', color: 'white', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', boxShadow: '0 8px 25px rgba(230,0,18,0.25)', fontSize: '16px', transition: 'all 0.2s' }}>
+                <button onClick={handleSaveSlot} style={{ width: '100%', padding: '18px', borderRadius: '16px', border: 'none', backgroundColor: '#3E2723', color: 'white', fontWeight: '950', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', boxShadow: '0 8px 25px rgba(62,39,35,0.25)', fontSize: '16px', transition: 'all 0.2s' }}>
                    <Icons.Send size={20} /> 公開する
                 </button>
              </section>
@@ -312,7 +312,7 @@ const TimeSlotRegView = ({ onBack }) => {
                 <Icons.Board size={20} color="#4338ca" />
                 <h3 style={{ fontWeight: '950', fontSize: '17px', margin: 0 }}>現在の提案枠一覧</h3>
               </div>
-              <button style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: 'var(--tacos-red)', color: 'white', fontWeight: '900', fontSize: '13px' }}>+ 新しい枠を追加</button>
+              <button style={{ padding: '10px 20px', borderRadius: '12px', border: 'none', background: '#3E2723', color: 'white', fontWeight: '950', fontSize: '13px' }}>+ 新しい枠を追加</button>
            </div>
            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
              <thead style={{ backgroundColor: '#fff', borderBottom: '2.5px solid #f1f5f9' }}>
@@ -332,7 +332,7 @@ const TimeSlotRegView = ({ onBack }) => {
                       <div style={{ fontWeight: '800' }}>{slot.day}</div>
                       <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '700' }}>{slot.time}</div>
                    </td>
-                   <td style={{ padding: '20px 24px', textAlign: 'right', fontWeight: '950', color: 'var(--tacos-red)', fontSize: '17px' }}>¥{slot.price}</td>
+                   <td style={{ padding: '20px 24px', textAlign: 'right', fontWeight: '950', color: '#8B4513', fontSize: '17px' }}>¥{slot.price}</td>
                    <td style={{ padding: '20px 24px', textAlign: 'center' }}>
                       <span style={{ padding: '6px 12px', borderRadius: '10px', backgroundColor: '#eef2ff', color: '#4338ca', fontWeight: '950', fontSize: '14px' }}>{slot.index}%</span>
                    </td>
