@@ -795,7 +795,15 @@ export const api = {
         }
         console.warn('[API] saveStationResponse failed, trying fallback...', error);
       }
-    } catch (e) {
+    } catch (dbErr) {
+      console.warn('[API] saveStationResponse DB insert failed, falling back to Profile Hack:', dbErr.message);
+    }
+
+    // 2. Profile Hack (フォールバック)
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
         let responses = [];
         const rawData = profile?.full_name || profile?.name || profile?.ful_name || '';
         if (rawData.includes('[RESPONSES_JSON]')) {

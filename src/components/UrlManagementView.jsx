@@ -160,9 +160,13 @@ const UrlManagementView = ({ onTabChange, setRole }) => {
           </div>
         </div>
 
-        {/* Dynamic component rendering based on the active link */}
         <div style={{ backgroundColor: 'white', borderRadius: '24px', border: '2px solid #eef1f6', padding: '16px', boxShadow: '0 8px 16px rgba(0,0,0,0.02)' }}>
-          {activePreview === 'slots-base' && <UrlSlotIssuanceDemo />}
+          {activePreview === 'slots-base' && (() => {
+             const latestProj = projects.find(p => p.status === 'requesting' || p.status === 'slots') || projects[0];
+             const projId = latestProj?.id;
+             const station = latestProj?.metadata?.selectedStations?.[0] || '札幌テレビ';
+             return <UrlSlotIssuanceDemo projectId={projId} stationName={station} />;
+          })()}
           {activePreview === 'materials-base' && <UrlMaterialRewriteDemo />}
           {activePreview === 'recordings-base' && <UrlRecordingUploadDemo />}
         </div>

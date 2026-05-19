@@ -1478,8 +1478,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
               <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>案件はありません。</div>
             ) : projects.map((item, i) => {
               const statusColors = {
-                draft: { label: '下書き', color: '#94a3b8' },
-                requesting: { label: '打診中', color: '#f59e0b' },
+                draft: { label: '枠出し待ち', color: '#94a3b8' },
+                requesting: { label: '枠出し待ち', color: '#f59e0b' },
                 slots: { label: '枠出し待ち', color: '#64748b' },
                 materials: { label: '素材待ち', color: '#8b5cf6' },
                 rewrites: { label: 'リライト待ち', color: '#ec4899' },
