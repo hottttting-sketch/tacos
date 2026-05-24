@@ -101,9 +101,6 @@ const UrlManagementView = ({ onTabChange, setRole }) => {
   ];
 
   const handleOpenPreview = (linkId, targetRole) => {
-    if (setRole && targetRole) {
-      setRole(targetRole);
-    }
     setActivePreview(linkId);
   };
 

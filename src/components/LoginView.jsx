@@ -4,7 +4,7 @@ import {
   Users, Building2, Building, Shield, Mail, Lock, 
   UserPlus, LogIn, ChevronRight, User 
 } from 'lucide-react';
-import { TacosLogo, PuddingLogo, TempraLogo } from './BrandLogos';
+import { Icons } from './IconLibrary';
 
 const LoginView = ({ setSession, setRole, setIsAdmin, setUsername, setCompany, setBroadcasterName, setFullProfile }) => {
   const [mode, setMode] = useState('login'); // 'login' or 'signup'
@@ -17,9 +17,27 @@ const LoginView = ({ setSession, setRole, setIsAdmin, setUsername, setCompany, s
   const [error, setError] = useState('');
 
   const topBrands = [
-    { label: 'タコス', color: '#E21C26', component: <TacosLogo size={24} /> },
-    { label: 'ぷりん', color: '#FFD93D', component: <PuddingLogo size={24} /> },
-    { label: 'てんぷら', color: '#FFB74D', component: <TempraLogo size={24} /> }
+    { 
+      label: 'タコス', 
+      component: <Icons.Monitor width={24} height={24} />,
+      bg: 'linear-gradient(135deg, var(--tacos-brown), var(--tacos-red))',
+      color: 'white',
+      shadow: '0 4px 12px rgba(0,0,0,0.1)'
+    },
+    { 
+      label: 'ぷりん', 
+      component: <Icons.Tv width={24} height={24} strokeWidth={2.5} />,
+      bg: 'linear-gradient(135deg, #FFF9C4, #FFD93D)',
+      color: '#8B4513',
+      shadow: '0 4px 6px -1px rgba(123, 63, 0, 0.2)'
+    },
+    { 
+      label: 'てんぷら', 
+      component: <Icons.TempraTv width={24} height={24} strokeWidth={2} />,
+      bg: 'linear-gradient(135deg, #FFE082, #FF9800)',
+      color: 'white',
+      shadow: '0 4px 6px -1px rgba(255, 152, 0, 0.2)'
+    }
   ];
 
   const roles = [
@@ -104,10 +122,10 @@ const LoginView = ({ setSession, setRole, setIsAdmin, setUsername, setCompany, s
           {topBrands.map(b => (
             <div key={b.label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
               <div style={{ 
-                width: '44px', height: '44px', borderRadius: '50%', backgroundColor: 'white',
+                width: '44px', height: '44px', borderRadius: '8px', background: b.bg, color: b.color,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                border: `1.5px solid ${b.color}22`
+                boxShadow: b.shadow,
+                border: 'none'
               }}>{b.component}</div>
               <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#666' }}>{b.label}</span>
             </div>

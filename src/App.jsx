@@ -75,6 +75,7 @@ import ChatView from './components/ChatView';
 import ManualView from './components/ManualView';
 import UpdateRequestView from './components/UpdateRequestView';
 import UrlManagementView from './components/UrlManagementView';
+import TacosUrlManagementView from './components/TacosUrlManagementView';
 import { api } from './utils/api';
 
 function App() {
@@ -192,7 +193,8 @@ function App() {
         if (currentApp === 'pudding') return <PuddingView activeTab={activeTab} role={role} setActiveTab={setActiveTab} fullProfile={fullProfile} />;
         return <UserManagementView role={role} />;
       case 'url-management':
-        return <UrlManagementView onTabChange={setActiveTab} setRole={setRole} />;
+        if (currentApp === 'pudding') return <UrlManagementView onTabChange={setActiveTab} setRole={setRole} />;
+        return <TacosUrlManagementView onTabChange={setActiveTab} setRole={setRole} />;
       case 'settings':
         return <SettingsView fullProfile={fullProfile} setFullProfile={setFullProfile} />;
       case 'new-estimate': return <NewEstimateView onBack={() => setActiveTab('dashboard')} />;

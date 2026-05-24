@@ -195,39 +195,52 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
   const [formRevisionDest, setFormRevisionDest] = useState('');
   const [formPubType, setFormPubType] = useState('');
 
-  const handleExportExcel = () => {
+  const handleExportExcel = (filteredData = null) => {
     let exportData = [];
-    projects.forEach(p => {
-      const stations = p.metadata?.selectedStations || [];
-      stations.forEach(s => {
-        if (role === 'broadcaster') {
-          const myStation = fullProfile?.broadcaster_name || fullProfile?.name;
-          if (s !== myStation) return;
-        }
 
-        const projectResponses = broadcasterResponses[p.id] || [];
-        const stationResp = projectResponses.find(r => r.station_name === s);
-        const response = stationResp?.response_data || p.metadata?.[ `response_${s}`] || {};
-        const respStatus = stationResp?.status || response.status;
-        
-        const statusLabel = 
-          p.status === 'cancelled' ? '削除済' :
-          (response?.broadcaster_hidden === true || response?.agency_hidden === true) ? '非表示' :
-          (respStatus === 'registered' || respStatus === 'pending') ? '素材待ち' :
-          (respStatus === 'material_ok' || respStatus === 'rewrites') ? 'リライト待ち' :
-          (respStatus === 'rewrite_ok' || respStatus === 'recordings') ? '同録待ち' :
-          p.status === 'requesting' ? '枠出し待ち' : p.status;
+    if (filteredData && Array.isArray(filteredData)) {
+      exportData = filteredData.map(row => ({
+        'スポンサー': row.sponsor,
+        '案件名': row.name,
+        [role === 'agency' ? '放送局' : '代理店']: role === 'agency' ? row.station : row.agency,
+        '放送開始日': row.date,
+        'ステータス': row.status,
+        '素材': row.material,
+        '備考': row.note
+      }));
+    } else {
+      projects.forEach(p => {
+        const stations = p.metadata?.selectedStations || [];
+        stations.forEach(s => {
+          if (role === 'broadcaster') {
+            const myStation = fullProfile?.broadcaster_name || fullProfile?.name;
+            if (s !== myStation) return;
+          }
 
-        exportData.push({
-          'スポンサー': p.sponsor_name || p.metadata?.sponsor || '未設定',
-          '案件名': p.name || p.title || '無題の案件',
-          [role === 'agency' ? '放送局' : '代理店']: role === 'agency' ? s : (p.metadata?.agency_name || '代理店'),
-          '放送開始日': p.start_date || '未設定',
-          'ステータス': statusLabel,
-          '備考': p.metadata?.memo || '-'
+          const projectResponses = broadcasterResponses[p.id] || [];
+          const stationResp = projectResponses.find(r => r.station_name === s);
+          const response = stationResp?.response_data || p.metadata?.[ `response_${s}`] || {};
+          const respStatus = stationResp?.status || response.status;
+          
+          const statusLabel = 
+            p.status === 'cancelled' ? '削除済' :
+            (response?.broadcaster_hidden === true || response?.agency_hidden === true) ? '非表示' :
+            (respStatus === 'registered' || respStatus === 'pending') ? '素材待ち' :
+            (respStatus === 'material_ok' || respStatus === 'rewrites') ? 'リライト待ち' :
+            (respStatus === 'rewrite_ok' || respStatus === 'recordings') ? '同録待ち' :
+            p.status === 'requesting' ? '枠出し待ち' : p.status;
+
+          exportData.push({
+            'スポンサー': p.sponsor_name || p.metadata?.sponsor || '未設定',
+            '案件名': p.name || p.title || '無題の案件',
+            [role === 'agency' ? '放送局' : '代理店']: role === 'agency' ? s : (p.metadata?.agency_name || '代理店'),
+            '放送開始日': p.start_date || '未設定',
+            'ステータス': statusLabel,
+            '備考': p.metadata?.memo || '-'
+          });
         });
       });
-    });
+    }
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
@@ -2222,7 +2235,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
         const thirdColHeader = isAgency ? '放送局' : '代理店';
 
         return (
-          <PageView title="Excelツール" desc="案件データをExcel形式で表示・出力します。" icon={Table} color="#7C3AED" action={<button onClick={handleExportExcel} style={{ backgroundColor: '#10B981', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', fontWeight: '900', cursor: 'pointer' }}>Excel出力</button>}>
+          <PageView title="Excelツール" desc="案件データをExcel形式で表示・出力します。" icon={Table} color="#7C3AED" action={<button onClick={() => handleExportExcel(filteredExcelData)} style={{ backgroundColor: '#10B981', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', fontWeight: '900', cursor: 'pointer' }}>Excel出力</button>}>
              <div style={{ marginBottom: '24px' }}>
                 <div style={{ position: 'relative', maxWidth: '400px' }}>
                    <Search size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
