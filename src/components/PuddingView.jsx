@@ -2598,7 +2598,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>OA日</label>
-                            <input type="date" value={formOADate} onChange={(e) => setFormOADate(e.target.value)} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none' }} />
+                            <div onClick={() => setActiveModal('formOADate')} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', height: '52px' }}><Calendar size={18} color="#8B4513" /><span style={{ color: formOADate ? '#3E2723' : '#94a3b8' }}>{formOADate ? formOADate.replace(/-/g, '/') : 'OA日を選択'}</span></div>
                          </div>
                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>開始・終了時間</label>
@@ -2615,11 +2615,11 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>素材搬入〆切</label>
-                            <input type="date" value={formMaterialDeadlineLimit} onChange={(e) => setFormMaterialDeadlineLimit(e.target.value)} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none' }} />
+                            <div onClick={() => setActiveModal('formMaterialDeadlineLimit')} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', height: '52px' }}><Calendar size={18} color="#8B4513" /><span style={{ color: formMaterialDeadlineLimit ? '#3E2723' : '#94a3b8' }}>{formMaterialDeadlineLimit ? formMaterialDeadlineLimit.replace(/-/g, '/') : '〆切日を選択'}</span></div>
                          </div>
                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <label style={{ fontSize: '10px', fontWeight: '950', color: '#94a3b8' }}>収録日</label>
-                            <input type="date" value={formRecordingDate} onChange={(e) => setFormRecordingDate(e.target.value)} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none' }} />
+                            <div onClick={() => setActiveModal('formRecordingDate')} style={{ padding: '14px 18px', borderRadius: '14px', border: '1.5px solid #F1E4C9', backgroundColor: '#fcfcfc', fontSize: '14px', fontWeight: '800', color: '#3E2723', outline: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', height: '52px' }}><Calendar size={18} color="#8B4513" /><span style={{ color: formRecordingDate ? '#3E2723' : '#94a3b8' }}>{formRecordingDate ? formRecordingDate.replace(/-/g, '/') : '収録日を選択'}</span></div>
                          </div>
                       </div>
 
@@ -3918,7 +3918,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
          </Modal>
       )}
 
-      {(activeModal === 'formOADate' || activeModal === 'formMaterialDeadlineLimit' || activeModal === 'rewrite-deadline') && (() => {
+      {(activeModal === 'formOADate' || activeModal === 'formMaterialDeadlineLimit' || activeModal === 'rewrite-deadline' || activeModal === 'formRecordingDate') && (() => {
          const year = viewMonth.getFullYear();
          const month = viewMonth.getMonth();
          const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -3929,7 +3929,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
          const isOADate = activeModal === 'formOADate';
          const isRewriteDeadline = activeModal === 'rewrite-deadline';
-         const title = isOADate ? "OA日を選択" : (isRewriteDeadline ? "修正稿〆切を選択" : "素材搬入予定日を選択");
+         const isRecordingDate = activeModal === 'formRecordingDate';
+         const title = isOADate ? "OA日を選択" : (isRewriteDeadline ? "修正稿〆切を選択" : (isRecordingDate ? "収録日を選択" : "素材搬入予定日を選択"));
 
          return (
             <Modal title={title} onClose={() => setActiveModal(null)} width="400px">
@@ -3956,12 +3957,20 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                      } else if (isRewriteDeadline) {
                         const recordingDate = selectedRequest?.metadata?.recording_date;
                         if (recordingDate && dateStr > recordingDate) isDisabled = true;
+                     } else if (isRecordingDate) {
+                        if (formMaterialDeadlineLimit) {
+                           const checkbackDays = parseInt(selectedRequest?.metadata?.checkback_period_days || 0, 10);
+                           const limitDate = new Date(formMaterialDeadlineLimit);
+                           limitDate.setDate(limitDate.getDate() + checkbackDays);
+                           const limitDateStr = `${limitDate.getFullYear()}-${(limitDate.getMonth() + 1).toString().padStart(2, '0')}-${limitDate.getDate().toString().padStart(2, '0')}`;
+                           if (dateStr < limitDateStr) isDisabled = true;
+                        }
                      } else {
                         const materialStart = selectedRequest?.metadata?.material_start_date || selectedRequest?.metadata?.material_deadline;
                         if (materialStart && dateStr < materialStart) isDisabled = true;
                      }
 
-                     const isSelected = isOADate ? formOADate === dateStr : (isRewriteDeadline ? rewriteDeadline === dateStr : formMaterialDeadlineLimit === dateStr);
+                     const isSelected = isOADate ? formOADate === dateStr : (isRewriteDeadline ? rewriteDeadline === dateStr : (isRecordingDate ? formRecordingDate === dateStr : formMaterialDeadlineLimit === dateStr));
                      
                      return (
                         <div 
@@ -3973,6 +3982,7 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                setRewriteDeadline(dateStr);
                                handleUpdateRewriteDeadline(selectedRequest, dateStr);
                             }
+                            else if (isRecordingDate) setFormRecordingDate(dateStr);
                             else setFormMaterialDeadlineLimit(dateStr);
                             setActiveModal(null);
                           }}
