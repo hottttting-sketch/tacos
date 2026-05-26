@@ -212,7 +212,7 @@ function App() {
       case 'broadcast-material': return <MaterialView role={role} />;
       case 'material-exam': return <MaterialView role={role} isExam={true} />;
       case 'user-management': return <UserManagementView role={role} />;
-      case 'chat': return <ChatView activeChannel={activeChannel} fullProfile={fullProfile} />;
+      case 'chat': return <ChatView activeChannel={activeChannel} fullProfile={fullProfile} currentApp={currentApp} />;
       case 'manual': return <ManualView />;
       case 'update-request': return <UpdateRequestView />;
       case 'revenue-management': return <RevenueView />;

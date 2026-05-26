@@ -664,10 +664,11 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       showToast(`ファイルを選択しました（${files.length}件）。アップロードを開始します...`);
       setIsSubmitting(true);
       try {
-        const uploadResults = await Promise.all(files.map(async file => ({
-          path: await api.uploadMaterialFile(file),
-          originalName: file.name
-        })));
+        const session = await api.getCurrentSession();
+        const uploadResults = await Promise.all(files.map(async file => {
+          const res = await api.uploadProjectFile(projectId, stationName, 'material', file, session?.user?.id);
+          return { path: res.path, originalName: file.name };
+        }));
         const paths = uploadResults.map(r => r.path);
         const originalNames = uploadResults.map(r => r.originalName);
         const resp = await api.getStationResponses(projectId);
@@ -832,6 +833,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       });
       
       if (success) {
+        const session = await api.getCurrentSession();
+        await api.transitionProjectStatus(projectId, stationName, 'registered', 'material_upload', session?.user?.id, { material_sent: true });
         showToast(`${stationName} への素材送信が完了しました。放送局側の「素材URL」が更新されます。`);
         fetchProjects();
         if (selectedBoardProject) {
@@ -853,7 +856,14 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
     try {
       const resp = await api.getStationResponses(projectId);
       const current = resp.find(r => r.station_name === stationName) || {};
-      const paths = current.response_data?.material_paths || (current.response_data?.material_path ? [current.response_data.material_path] : []);
+      const files = await api.getProjectFiles(projectId);
+      const materialFiles = files.filter(f => f.file_type === 'material' && f.station_name === stationName);
+      
+      let paths = materialFiles.map(f => f.file_path);
+      
+      if (paths.length === 0) {
+        paths = current.response_data?.material_paths || (current.response_data?.material_path ? [current.response_data.material_path] : []);
+      }
       
       if (paths.length === 0) {
         showToast('素材ファイルが見当たりません。');
@@ -907,7 +917,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
       setIsSubmitting(true);
       try {
-        const path = await api.uploadRewriteFile(projectId, stationName, file, 'original');
+        const session = await api.getCurrentSession();
+        const res = await api.uploadProjectFile(projectId, stationName, 'rewrite', file, session?.user?.id);
+        const path = res.path;
         const resp = await api.getStationResponses(projectId);
         const current = resp.find(r => r.station_name === stationName) || {};
         
@@ -992,7 +1004,13 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
     try {
       const resp = await api.getStationResponses(projectId);
       const current = resp.find(r => r.station_name === stationName) || {};
-      const path = current.response_data?.rewrite_path;
+      const files = await api.getProjectFiles(projectId);
+      const rewriteFiles = files.filter(f => f.file_type === 'rewrite' && f.station_name === stationName);
+      
+      let path = current.response_data?.rewrite_path;
+      if (rewriteFiles.length > 0) {
+        path = rewriteFiles[0].file_path;
+      }
       const originalName = current.response_data?.rewrite_filename;
       if (!path) { showToast('修正稿が見当たりません。'); return; }
       const url = await api.getRewriteUrl(path);
@@ -1014,7 +1032,14 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
     try {
       const resp = await api.getStationResponses(projectId);
       const current = resp.find(r => r.station_name === stationName) || {};
-      const path = current.response_data?.revised_path;
+      const files = await api.getProjectFiles(projectId);
+      const rewriteFiles = files.filter(f => f.file_type === 'rewrite' && f.station_name === stationName);
+      
+      let path = current.response_data?.revised_path;
+      if (rewriteFiles.length > 0) {
+        // Find latest one, maybe same bucket, let's just use the first one assuming it's ordered
+        path = rewriteFiles[0].file_path;
+      }
       const originalName = current.response_data?.revised_filename;
       if (!path) { showToast('修正稿が見当たりません。'); return; }
       const url = await api.getRewriteUrl(path, 'revised');
@@ -1048,7 +1073,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
       setIsSubmitting(true);
       try {
-        const path = await api.uploadRewriteFile(projectId, stationName, file, 'revised');
+        const session = await api.getCurrentSession();
+        const res = await api.uploadProjectFile(projectId, stationName, 'rewrite', file, session?.user?.id);
+        const path = res.path;
         const resp = await api.getStationResponses(projectId);
         const current = resp.find(r => r.station_name === stationName) || {};
         
@@ -1097,6 +1124,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       });
       
       if (success) {
+        const session = await api.getCurrentSession();
+        await api.transitionProjectStatus(projectId, stationName, current.status || 'rewrites', 'rewrite_submit', session?.user?.id, { rewrite_sent: true });
         showToast(`${stationName} の修正稿送信を送信しました。制作側でダウンロード可能になります。`);
         fetchProjects();
         if (selectedBoardProject) {
@@ -1127,6 +1156,8 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
       });
       
       if (success) {
+        const session = await api.getCurrentSession();
+        await api.transitionProjectStatus(projectId, stationName, 'rewrites', 'revised_submit', session?.user?.id, { revised_sent: true });
         showToast('修正稿を送信しました。放送局の確認をお待ちください。');
         fetchProjects();
         if (selectedBoardProject) {
@@ -1186,7 +1217,9 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
 
       setIsSubmitting(true);
       try {
-        const path = await api.uploadRecordingFile(projectId, stationName, file);
+        const session = await api.getCurrentSession();
+        const res = await api.uploadProjectFile(projectId, stationName, 'recording', file, session?.user?.id);
+        const path = res.path;
         const resp = await api.getStationResponses(projectId);
         const current = resp.find(r => r.station_name === stationName) || {};
         
@@ -1224,7 +1257,13 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
     try {
       const resp = await api.getStationResponses(projectId);
       const current = resp.find(r => r.station_name === stationName) || {};
-      const path = current.response_data?.recording_path;
+      const files = await api.getProjectFiles(projectId);
+      const recordingFiles = files.filter(f => f.file_type === 'recording' && f.station_name === stationName);
+      
+      let path = current.response_data?.recording_path;
+      if (recordingFiles.length > 0) {
+        path = recordingFiles[0].file_path;
+      }
       const originalName = current.response_data?.recording_filename;
       
       if (!path) {
@@ -1913,9 +1952,15 @@ const PuddingView = ({ activeTab = 'dashboard', role: rawRole, setActiveTab, ful
                                               disabled={!item.has_material || item.material_sent}
                                               onClick={async (e) => { 
                                                 e.stopPropagation(); 
-                                                const success = await api.updateProject(item.projectId || item.id, { 
-                                                  metadata: { [`response_${item.station}`]: { ...(selectedBoardProject.metadata?.[`response_${item.station}`] || {}), material_sent: true, status: 'registered' } }
-                                                }); 
+                                                const session = await api.getCurrentSession();
+                                                const success = await api.transitionProjectStatus(
+                                                  item.projectId || item.id,
+                                                  item.station,
+                                                  'registered',
+                                                  'material_send',
+                                                  session?.user?.id,
+                                                  { material_sent: true }
+                                                ); 
                                                 if (success) {
                                                   showToast('素材送信が完了しました。');
                                                   fetchProjects();

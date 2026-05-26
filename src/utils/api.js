@@ -64,6 +64,125 @@ export const api = {
       return false;
     }
   },
+
+  transitionProjectStatus: async (projectId, stationName, newStatus, actionType, userId, extraFlags = {}) => {
+    try {
+      // 1. Try to call the new atomic RPC
+      const { error: rpcError } = await supabase.rpc('pudding_transition_status', {
+        p_project_id: projectId,
+        p_station_name: stationName,
+        p_new_status: newStatus,
+        p_action_type: actionType,
+        p_user_id: userId,
+        p_extra_flags: extraFlags // Note: The SQL RPC needs to be updated to handle this, but it will fallback for now.
+      });
+
+      if (!rpcError) {
+        return true;
+      }
+      
+      console.warn('[API] RPC missing or failed, falling back to manual update:', rpcError.message);
+      
+      // Fallback: update via api.updateProject manually if RPC doesn't exist yet
+      const { data: currentProject } = await supabase.from('pudding_projects').select('metadata').eq('id', projectId).single();
+      const meta = currentProject?.metadata || {};
+      
+      if (stationName) {
+        meta[`response_${stationName}`] = {
+          ...(meta[`response_${stationName}`] || {}),
+          status: newStatus,
+          ...extraFlags
+        };
+      } else {
+        Object.assign(meta, extraFlags);
+      }
+      
+      // We push a rudimentary history entry to old metadata history
+      meta.history = meta.history || [];
+      meta.history.push({
+        action: actionType,
+        station: stationName,
+        status: newStatus,
+        timestamp: new Date().toISOString()
+      });
+
+      await api.updateProject(projectId, { status: newStatus, metadata: meta });
+      return true;
+
+    } catch (e) {
+      console.error('[API] transitionProjectStatus error:', e);
+      return false;
+    }
+  },
+
+  getProjectFiles: async (projectId) => {
+    try {
+      const { data, error } = await supabase
+        .from('project_files')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('uploaded_at', { ascending: false });
+        
+      if (error) {
+        console.warn('[API] getProjectFiles error (table might not exist yet):', error.message);
+        return [];
+      }
+      return data || [];
+    } catch (e) {
+      console.error('[API] getProjectFiles exception:', e);
+      return [];
+    }
+  },
+
+  uploadProjectFile: async (projectId, stationName, fileType, file, userId) => {
+    try {
+      // 1. Upload to Supabase Storage
+      const bucketName = fileType === 'material' ? 'materials' : 
+                         fileType === 'rewrite' ? 'rewrites' : 
+                         fileType === 'recording' ? 'recordings' : 'attachments';
+                         
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${projectId}/${stationName || 'global'}_${Date.now()}.${fileExt}`;
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from(bucketName)
+        .upload(fileName, file, { cacheControl: '0', upsert: true });
+
+      if (uploadError) {
+        console.error(`[API] Storage upload failed for ${bucketName}:`, uploadError);
+        return { success: false, error: uploadError };
+      }
+
+      const filePath = uploadData.path;
+
+      // 2. Insert into project_files table
+      const { data: dbData, error: dbError } = await supabase
+        .from('project_files')
+        .insert([{
+          project_id: projectId,
+          station_name: stationName,
+          file_type: fileType,
+          file_path: filePath,
+          original_name: file.name,
+          uploaded_by: userId
+        }])
+        .select()
+        .single();
+
+      if (dbError) {
+        console.warn('[API] DB insert to project_files failed (maybe table not created?):', dbError.message);
+        // Fallback: Just return success so the frontend knows upload worked, even if DB log failed.
+        // Usually, in a real environment, we'd want this to fail or write to metadata as fallback.
+        // For fallback, we return the path so the caller can write it to metadata.
+        return { success: true, path: filePath, fallbackNeeded: true };
+      }
+
+      return { success: true, path: filePath, fileRecord: dbData, fallbackNeeded: false };
+    } catch (e) {
+      console.error('[API] uploadProjectFile exception:', e);
+      return { success: false, error: e };
+    }
+  },
   getProjects: async () => {
     try {
       let allProjects = [...FALLBACK_PROJECTS];
@@ -983,19 +1102,33 @@ export const api = {
   },
 
   getChatMessages: async (projectId) => {
-    // 1. 本来のテーブルを試行
+    let dbChats = [];
+    let hackChats = [];
+
+    // 1. 本来のテーブルから取得
     try {
       const { data, error } = await supabase.from('project_chats').select('*').eq('project_id', projectId).order('created_at', { ascending: true });
-      if (!error && data && data.length > 0) return data;
-    } catch (e) {}
+      if (!error && data) dbChats = data;
+    } catch (e) {
+      console.warn('[API] getChatMessages DB fetch failed:', e);
+    }
 
-    // 2. 全ユーザーのProfile Hackから集約して取得
-    const allGlobalChats = await api._getAllGlobalChats();
-    return allGlobalChats.filter(c => c.project_id === projectId);
+    // 2. 過去のProfile Hackからの取得 (フォールバック)
+    try {
+      const allGlobalChats = await api._getAllGlobalChats();
+      hackChats = allGlobalChats.filter(c => c.project_id === projectId);
+    } catch (e) {
+      console.warn('[API] getChatMessages Hack fetch failed:', e);
+    }
+
+    // 両方をマージして重複を排除（idが同じものはDB優先）
+    const merged = [...hackChats, ...dbChats];
+    const uniqueChats = Array.from(new Map(merged.map(item => [item.id, item])).values());
+    
+    // 時間順にソート
+    return uniqueChats.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   },
 
-
-  
   sendChatMessage: async (projectId, userId, name, text, attachment = null) => {
     const payload = {
       id: Math.random().toString(36).substr(2, 9),
@@ -1010,53 +1143,16 @@ export const api = {
       payload.attachment_url = attachment.url;
       payload.attachment_name = attachment.name;
       payload.attachment_type = attachment.type;
-      payload.message += ` [ATTACHMENT:${JSON.stringify(attachment)}]`;
     }
 
-    // 1. 本来のテーブルへの送信（エラーを完全に無視する）
     try {
-      await supabase.from('project_chats').insert([payload]);
+      const { error } = await supabase.from('project_chats').insert([payload]);
+      if (error) throw error;
+      return true;
     } catch (e) {
-      console.warn('[API] Primary chat table insert failed (expected):', e);
+      console.error('[API] Primary chat table insert failed:', e);
+      return false;
     }
-
-    // 2. Profile Hackへの保存（これが実質的なバックエンド）
-    try {
-      const allHackChats = await api._getHackChats();
-      allHackChats.push(payload);
-      
-      // 保存処理を直接ここに展開して確実性を高める
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-        if (profile) {
-          let currentVal = profile.full_name || profile.name || profile.ful_name || '';
-          const chatTag = '[CHATS_JSON]';
-          const chatContent = JSON.stringify(allHackChats);
-          
-          if (currentVal.includes(chatTag)) {
-            currentVal = currentVal.replace(/\[CHATS_JSON\].*?(?=\[[A-Z_]+_JSON\]|$)/, `${chatTag}${chatContent}`);
-          } else {
-            currentVal += `${chatTag}${chatContent}`;
-          }
-          
-          const upData = {};
-          if ('full_name' in profile) upData.full_name = currentVal;
-          else if ('ful_name' in profile) upData.ful_name = currentVal;
-          else upData.name = currentVal;
-          
-          const { error: upError } = await supabase.from('profiles').update(upData).eq('id', user.id);
-          if (upError) {
-             console.error('[API] Profile Hack update failed:', upError.message);
-             // 最後の手段：エラーを出さずにtrueを返す（画面上の楽観的更新を優先）
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[API] Profile Hack extreme fallback failed:', err);
-    }
-    
-    return true;
   },
 
 

@@ -280,6 +280,25 @@ const ProjectsView = ({ role }) => {
         metadata: updatedMeta
       });
 
+      // システム未導入局（URL送付対象）への通知モック処理
+      if (newStatus === 'requesting' || newStatus === 'planning') {
+        const targetStations = newStations || editFormData.selectedStations || [];
+        if (targetStations.length > 0) {
+          const profiles = await api.getProfilesByRole('station');
+          const externalStations = [];
+          targetStations.forEach(st => {
+            const stationName = typeof st === 'string' ? st : (st.name || st);
+            // 放送局に紐づくユーザーの中で「is_external: true」になっているユーザーがいるか確認
+            const hasExternalUser = profiles.some(p => p.company_name === stationName && p.is_external);
+            if (hasExternalUser) externalStations.push(stationName);
+          });
+          
+          if (externalStations.length > 0) {
+            alert(`【自動送信完了】\n以下のシステム未導入局宛てに、ゲストURLを記載した依頼メールを自動送付しました。\n\n対象局: ${externalStations.join('、')}\n送付URL: https://tacos.example.com/guest/request?projectId=${editingProject.id}`);
+          }
+        }
+      }
+
       alert(newStatus ? 'ステータスを更新し案件を保存しました。' : '案件内容を更新しました。');
       setEditingProject(null);
       fetchProjects();

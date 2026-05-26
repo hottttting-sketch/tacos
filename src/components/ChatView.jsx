@@ -3,11 +3,13 @@ import { Icons } from './IconLibrary';
 import IconWrapper from './IconWrapper';
 import { api } from '../utils/api';
 
-const ChatView = ({ activeChannel, fullProfile }) => {
+const ChatView = ({ activeChannel, fullProfile, currentApp }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [projectId, setProjectId] = useState(null);
-    const scrollRef = useRef(null);
+  const [threadList, setThreadList] = useState([]);
+  const [activeThreadName, setActiveThreadName] = useState(null);
+  const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
 
   const handleFileAttach = async (e) => {
@@ -75,9 +77,32 @@ const ChatView = ({ activeChannel, fullProfile }) => {
     const initChat = async () => {
       try {
         const projs = await api.getProjects();
+        
+        let filteredProjs = projs;
+        if (currentApp === 'tacos') {
+          // タコス（代理店）: 見積依頼中、プランニング中、初案待ち、改案、進行済
+          const tacosStatuses = ['requesting', 'planning', 'waiting_for_first_draft', 'revision', 'ordered'];
+          filteredProjs = projs.filter(p => p.status !== 'cancelled' && tacosStatuses.includes(p.status));
+        } else if (currentApp === 'pudding') {
+          // ぷりん（放送局）: 枠出し待ち、素材待ち、リライト待ち、同録待ち
+          const puddingStatuses = ['draft', 'requesting', 'slots', 'registered', 'materials', 'rewrites', 'recordings'];
+          filteredProjs = projs.filter(p => p.status !== 'cancelled' && puddingStatuses.includes(p.status));
+        }
+
+        const formattedThreads = filteredProjs.map(p => ({
+           id: p.id,
+           name: p.name || '無題の案件',
+           last: 'メッセージを開く', 
+           time: '',
+           unread: 0
+        }));
+        
+        // Remove duplicates based on id
+        const uniqueThreads = Array.from(new Map(formattedThreads.map(item => [item.id, item])).values());
+        setThreadList(uniqueThreads);
+
         const channelName = activeChannel || 'チャット';
         
-        // より柔軟な検索（部分一致やID直接指定など）
         let chatProj = projs.find(p => 
           p.id === channelName || 
           p.name === channelName || 
@@ -85,17 +110,16 @@ const ChatView = ({ activeChannel, fullProfile }) => {
           (p.metadata && (p.metadata.name === channelName || p.metadata.title === channelName))
         );
         
-        // それでも見つからない場合、もっとも新しい案件をデフォルトにする（モック用救済措置）
-        if (!chatProj && projs.length > 0 && !activeChannel) {
-          chatProj = projs[0];
+        if (!chatProj && uniqueThreads.length > 0 && !activeChannel) {
+          chatProj = uniqueThreads[0];
         }
         
         if (chatProj) {
           setProjectId(chatProj.id);
+          setActiveThreadName(chatProj.name || chatProj.title);
           const dbMsgs = await api.getChatMessages(chatProj.id);
           setMessages(dbMsgs.map(mapDbToUi));
 
-          // Real-time subscription
           subscription = api.subscribeToChat(chatProj.id, (newMsg) => {
             setMessages(prev => {
               if (prev.some(m => m.id === newMsg.id)) return prev;
@@ -103,7 +127,6 @@ const ChatView = ({ activeChannel, fullProfile }) => {
             });
           });
         } else {
-          // Fallback if project not found
           setMessages([]);
         }
       } catch (e) {
@@ -198,11 +221,21 @@ const ChatView = ({ activeChannel, fullProfile }) => {
            </div>
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
-           {[
-             { name: activeChannel || 'チャット（案件未選択）', last: '最新のメッセージを確認してください。', time: '現在', unread: 0 },
-             { name: 'トヨタ新型SUVプロモーション', last: '移動書をご確認ください。', time: '昨日', unread: 0 }
-           ].map((thread, i) => (
-             <div key={i} style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #f8fafc', cursor: 'pointer', backgroundColor: i === 0 ? '#f0f9ff' : 'transparent', transition: 'background-color 0.2s' }} className="hover-row">
+           {threadList.length === 0 ? (
+             <div style={{ padding: '1.5rem', color: '#94a3b8', fontSize: '0.85rem' }}>表示できる案件がありません。</div>
+           ) : threadList.map((thread, i) => (
+             <div 
+               key={thread.id || i} 
+               onClick={async () => {
+                  setProjectId(thread.id);
+                  setActiveThreadName(thread.name);
+                  setMessages([]);
+                  const dbMsgs = await api.getChatMessages(thread.id);
+                  setMessages(dbMsgs.map(mapDbToUi));
+               }}
+               style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #f8fafc', cursor: 'pointer', backgroundColor: projectId === thread.id ? '#f0f9ff' : 'transparent', transition: 'background-color 0.2s' }} 
+               className="hover-row"
+             >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                    <div style={{ fontWeight: '800', fontSize: '0.95rem', color: '#1e293b' }}>{thread.name}</div>
                    <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: '700' }}>{thread.time}</div>
@@ -223,7 +256,7 @@ const ChatView = ({ activeChannel, fullProfile }) => {
         <header style={{ padding: '1.25rem 2rem', background: 'white', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <IconWrapper size={40} color="#eef2ff" iconColor="#4338ca"><Icons.Chat /></IconWrapper>
-              <h3 style={{ fontWeight: '900', fontSize: '1.1rem', color: '#1e293b' }}>{activeChannel ? activeChannel : 'メッセージ一覧'}</h3>
+              <h3 style={{ fontWeight: '900', fontSize: '1.1rem', color: '#1e293b' }}>{activeThreadName || 'メッセージ一覧'}</h3>
            </div>
            <button style={{ border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer' }}><Icons.Settings size={20} /></button>
         </header>

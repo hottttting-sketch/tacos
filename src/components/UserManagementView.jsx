@@ -109,6 +109,7 @@ const UserManagementView = ({ role: userRole }) => {
         email: p.email,
         role: p.staff_role || '通常ユーザー',
         scopes: p.scopes || [],
+        is_external: p.is_external || false,
         status: p.status || 'active',
         date: p.created_at ? new Date(p.created_at).toLocaleDateString('ja-JP') : '-'
       }));
@@ -136,6 +137,7 @@ const UserManagementView = ({ role: userRole }) => {
         kana: newItem.kana,
         staff_role: newItem.role,
         scopes: newItem.scopes,
+        is_external: newItem.is_external || false,
         status: 'active'
       };
 
@@ -300,8 +302,9 @@ const UserManagementView = ({ role: userRole }) => {
                     <td style={{ padding: '16px 24px', color: '#64748b', fontWeight: '700' }}>{item.email}</td>
                     <td style={{ padding: '16px 24px' }}>
                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          <span style={{ display: 'inline-block', width: 'fit-content', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '950', backgroundColor: item.role === '管理者' ? '#fff4e6' : '#f1f3f5', color: item.role === '管理者' ? '#d9480f' : '#495057' }}>{item.role}</span>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                           <span style={{ display: 'inline-block', width: 'fit-content', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '950', backgroundColor: item.role === '管理者' ? '#fff4e6' : '#f1f3f5', color: item.role === '管理者' ? '#d9480f' : '#495057' }}>{item.role}</span>
+                           {item.is_external && <span style={{ display: 'inline-block', width: 'fit-content', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '950', backgroundColor: '#fff0f6', color: '#c2255c', marginTop: '4px' }}>URL送付のみ</span>}
+                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                              {item.scopes?.map(s => {
                                const label = SCOPE_OPTIONS.find(so => so.id === s)?.label;
                                return <span key={s} style={{ fontSize: '9px', fontWeight: '800', color: '#4263eb', backgroundColor: '#edf2ff', padding: '2px 6px', borderRadius: '4px' }}>{label}</span>
@@ -333,11 +336,11 @@ const UserManagementView = ({ role: userRole }) => {
 
 /* --- インライン登録・編集フォーム --- */
 const RegistrationInlineForm = ({ type, editData, showSection, scopeOptions, sectionLabels, onClose, onSubmit }) => {
-  const [formData, setFormData] = useState({ company: '', department: '', kana: '', name: '', email: '', role: '通常ユーザー', scopes: [] });
+  const [formData, setFormData] = useState({ company: '', department: '', kana: '', name: '', email: '', role: '通常ユーザー', scopes: [], is_external: false });
 
   useEffect(() => {
-    if (editData) setFormData({ ...editData, scopes: editData.scopes || [] });
-    else setFormData({ company: type === 'sponsor' ? '' : 'H', department: '', kana: '', name: '', email: '', role: '通常ユーザー', scopes: [] });
+    if (editData) setFormData({ ...editData, scopes: editData.scopes || [], is_external: editData.is_external || false });
+    else setFormData({ company: type === 'sponsor' ? '' : 'H', department: '', kana: '', name: '', email: '', role: '通常ユーザー', scopes: [], is_external: false });
   }, [editData, type]);
 
   const toggleScope = (id) => {
@@ -395,6 +398,17 @@ const RegistrationInlineForm = ({ type, editData, showSection, scopeOptions, sec
               <label style={{ display: 'block', fontSize: '11px', fontWeight: '900', color: '#94a3b8', marginBottom: '8px', textTransform: 'uppercase' }}>メールアドレス</label>
               <input value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1.5px solid #e2e8f0', outline: 'none', fontWeight: '700', backgroundColor: 'white' }} placeholder="example@broadcaster.jp" />
             </div>
+            {type === 'broadcaster' && (
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '900', color: '#94a3b8', marginBottom: '8px', textTransform: 'uppercase' }}>システム連携</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '12px', backgroundColor: formData.is_external ? '#fff0f6' : '#f8fafc', border: `1.5px solid ${formData.is_external ? '#ffdeeb' : '#e2e8f0'}`, borderRadius: '12px', transition: 'all 0.2s' }}>
+                  <input type="checkbox" checked={formData.is_external} onChange={e => setFormData({...formData, is_external: e.target.checked})} style={{ width: '16px', height: '16px', accentColor: '#d6336c' }} />
+                  <span style={{ fontSize: '13px', fontWeight: '800', color: formData.is_external ? '#a61e4d' : '#475569' }}>
+                    システム未導入（URL送付のみ）
+                  </span>
+                </label>
+              </div>
+            )}
           </>
         )}
       </div>
