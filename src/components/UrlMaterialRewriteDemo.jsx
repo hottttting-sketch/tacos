@@ -1,17 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Download, Upload, FileText, Check, AlertCircle, Sparkles, ChevronRight, Play } from 'lucide-react';
+import { api } from '../utils/api';
 
 const Icons = { Download, Upload, FileText, Check, AlertCircle, Sparkles, ChevronRight, Play };
 
-const UrlMaterialRewriteDemo = () => {
+const UrlMaterialRewriteDemo = ({ projectId }) => {
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [rewriteResult, setRewriteResult] = useState('');
   const [uploadedFile, setUploadedFile] = useState(null);
+  const [projectData, setProjectData] = useState(null);
+
+  useEffect(() => {
+    const fetchProject = async () => {
+      if (!projectId) return;
+      const proj = await api.getProjectById(projectId);
+      setProjectData(proj);
+    };
+    fetchProject();
+  }, [projectId]);
 
   const handleAiRewrite = () => {
     setIsAiProcessing(true);
     setTimeout(() => {
-      setRewriteResult('【リライト案】\n本日はサントリーのザ・プレミアム・モルツをご紹介します。今回の夏キャンペーンでは、清涼感あふれるパッケージデザインを一新。最高級の原料とこだわりの製法が生み出す、深いコクと華やかな香りをぜひお楽しみください。');
+      const sponsor = projectData?.sponsor || 'サントリー';
+      setRewriteResult(`【リライト案】\n本日は${sponsor}の商品をご紹介します。清涼感あふれるパッケージデザインを一新。最高級の原料とこだわりの製法が生み出す、深いコクと華やかな香りをぜひお楽しみください。`);
       setIsAiProcessing(false);
     }, 2000);
   };
@@ -22,6 +34,10 @@ const UrlMaterialRewriteDemo = () => {
       setUploadedFile(file.name);
     }
   };
+
+  const sponsorName = projectData?.sponsor || '株式会社サントリーホールディングス';
+  const projectName = projectData?.name || 'ザ・プレミアム・モルツ 2026夏キャンペーン';
+  const deadline = projectData?.metadata?.rewriteDeadline || '2026年5月30日(土) 18:00';
 
   return (
     <div style={{ padding: '40px', backgroundColor: '#fdfbf7', minHeight: '100vh', fontFamily: "'Inter', sans-serif" }}>
@@ -45,15 +61,15 @@ const UrlMaterialRewriteDemo = () => {
            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', padding: '24px', backgroundColor: '#fcfcfd', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
               <div>
                  <label style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '950', display: 'block', marginBottom: '4px' }}>スポンサー</label>
-                 <div style={{ fontSize: '14px', fontWeight: '800', color: '#1e293b' }}>株式会社サントリーホールディングス</div>
+                 <div style={{ fontSize: '14px', fontWeight: '800', color: '#1e293b' }}>{sponsorName}</div>
               </div>
               <div>
                  <label style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '950', display: 'block', marginBottom: '4px' }}>案件名</label>
-                 <div style={{ fontSize: '14px', fontWeight: '800', color: '#1e293b' }}>ザ・プレミアム・モルツ 2026夏キャンペーン</div>
+                 <div style={{ fontSize: '14px', fontWeight: '800', color: '#1e293b' }}>{projectName}</div>
               </div>
               <div>
                  <label style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '950', display: 'block', marginBottom: '4px' }}>リライト〆切</label>
-                 <div style={{ fontSize: '14px', fontWeight: '800', color: '#ef4444' }}>2026年5月30日(土) 18:00</div>
+                 <div style={{ fontSize: '14px', fontWeight: '800', color: '#ef4444' }}>{deadline}</div>
               </div>
            </div>
         </header>

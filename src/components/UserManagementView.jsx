@@ -3,7 +3,10 @@ import { api } from '../utils/api';
 import { Icons } from './IconLibrary';
 import IconWrapper from './IconWrapper';
 
-const UserManagementView = ({ role: userRole }) => {
+const UserManagementView = ({ role: userRole, currentApp }) => {
+  const primaryColor = currentApp === 'pudding' ? '#3E2723' : 'var(--tacos-red)';
+  const primaryShadow = currentApp === 'pudding' ? '0 8px 20px rgba(62,39,35,0.15)' : '0 8px 20px rgba(230,0,18,0.15)';
+
   const [activeTab, setActiveTab] = useState('sponsor'); // 'sponsor', 'internal', 'broadcaster'
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -221,10 +224,10 @@ const UserManagementView = ({ role: userRole }) => {
            onClick={() => { setEditingItem(null); setIsFormOpen(!isFormOpen); }}
            style={{ 
              padding: '12px 24px', borderRadius: '16px', fontWeight: '950', 
-             backgroundColor: isFormOpen ? '#f1f5f9' : 'var(--tacos-red)', 
+             backgroundColor: isFormOpen ? '#f1f5f9' : primaryColor, 
              color: isFormOpen ? '#64748b' : 'white', 
              border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', 
-             boxShadow: isFormOpen ? 'none' : '0 8px 20px rgba(230,0,18,0.15)',
+             boxShadow: isFormOpen ? 'none' : primaryShadow,
              transition: 'all 0.3s'
            }}
         >
@@ -247,6 +250,7 @@ const UserManagementView = ({ role: userRole }) => {
            scopeOptions={currentScopeOptions}
            sectionLabels={SECTION_LABELS}
            editData={editingItem}
+           currentApp={currentApp}
            onClose={() => { setIsFormOpen(false); setEditingItem(null); }} 
            onSubmit={handleAddItem} 
         />
@@ -335,8 +339,10 @@ const UserManagementView = ({ role: userRole }) => {
 };
 
 /* --- インライン登録・編集フォーム --- */
-const RegistrationInlineForm = ({ type, editData, showSection, scopeOptions, sectionLabels, onClose, onSubmit }) => {
+const RegistrationInlineForm = ({ type, editData, showSection, scopeOptions, sectionLabels, currentApp, onClose, onSubmit }) => {
   const [formData, setFormData] = useState({ company: '', department: '', kana: '', name: '', email: '', role: '通常ユーザー', scopes: [], is_external: false });
+  const primaryColor = currentApp === 'pudding' ? '#3E2723' : 'var(--tacos-red)';
+  const primaryShadow = currentApp === 'pudding' ? '0 4px 10px rgba(62,39,35,0.2)' : '0 4px 10px rgba(230,0,18,0.2)';
 
   useEffect(() => {
     if (editData) setFormData({ ...editData, scopes: editData.scopes || [], is_external: editData.is_external || false });
@@ -436,7 +442,7 @@ const RegistrationInlineForm = ({ type, editData, showSection, scopeOptions, sec
 
       <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
         <button onClick={onClose} style={{ padding: '12px 24px', borderRadius: '12px', border: '1.5px solid #e2e8f0', backgroundColor: 'white', fontWeight: '900', cursor: 'pointer', fontSize: '14px' }}>キャンセル</button>
-        <button onClick={() => onSubmit(formData)} style={{ padding: '12px 32px', borderRadius: '12px', border: 'none', backgroundColor: 'var(--tacos-red)', color: 'white', fontWeight: '900', cursor: 'pointer', fontSize: '14px', boxShadow: '0 4px 10px rgba(230,0,18,0.2)' }}>
+        <button onClick={() => onSubmit(formData)} style={{ padding: '12px 32px', borderRadius: '12px', border: 'none', backgroundColor: primaryColor, color: 'white', fontWeight: '900', cursor: 'pointer', fontSize: '14px', boxShadow: primaryShadow }}>
           {editData ? '更新を保存' : '登録'}
         </button>
       </div>

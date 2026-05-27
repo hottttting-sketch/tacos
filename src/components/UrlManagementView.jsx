@@ -17,6 +17,7 @@ const UrlManagementView = ({ onTabChange, setRole }) => {
   const [selectedStation, setSelectedStation] = useState('');
   const [selectedUrlType, setSelectedUrlType] = useState('slots');
   const [isLoading, setIsLoading] = useState(false);
+  const [sendingState, setSendingState] = useState({}); // { urlId: 'sending' | 'sent' }
   const [systemConfig, setSystemConfig] = useState({
     defaultAiModel: 'Claude 3.5 Sonnet',
     defaultTtsEngine: 'OpenAI TTS',
@@ -60,6 +61,24 @@ const UrlManagementView = ({ onTabChange, setRole }) => {
     const success = await api.deleteSentUrl(id);
     if (success) {
       setSentUrls(sentUrls.filter(u => u.id !== id));
+    }
+  };
+
+  const handleSendUrl = async (url) => {
+    const email = window.prompt(`「${url.stationName}」の担当者メールアドレスを入力してください。\n(ゲストURLが送信されます)`, 'guest@example.com');
+    if (!email) return;
+
+    setSendingState(prev => ({ ...prev, [url.id]: 'sending' }));
+    
+    const link = `https://pudding.io/s/${url.slug}`;
+    const success = await api.sendUrlEmail(url.id, email, link, url.type);
+    
+    if (success) {
+      setSendingState(prev => ({ ...prev, [url.id]: 'sent' }));
+      alert(`【送信完了】\n${email} 宛てに送付URLを送信しました。`);
+    } else {
+      setSendingState(prev => ({ ...prev, [url.id]: null }));
+      alert('送信に失敗しました。');
     }
   };
 
@@ -164,8 +183,16 @@ const UrlManagementView = ({ onTabChange, setRole }) => {
              const station = latestProj?.metadata?.selectedStations?.[0] || '札幌テレビ';
              return <UrlSlotIssuanceDemo projectId={projId} stationName={station} />;
           })()}
-          {activePreview === 'materials-base' && <UrlMaterialRewriteDemo />}
-          {activePreview === 'recordings-base' && <UrlRecordingUploadDemo />}
+          {activePreview === 'materials-base' && (() => {
+             const latestProj = projects.find(p => p.status === 'materials') || projects[0];
+             const projId = latestProj?.id;
+             return <UrlMaterialRewriteDemo projectId={projId} />;
+          })()}
+          {activePreview === 'recordings-base' && (() => {
+             const latestProj = projects.find(p => p.status === 'completed' || p.status === 'in_progress') || projects[0];
+             const projId = latestProj?.id;
+             return <UrlRecordingUploadDemo projectId={projId} />;
+          })()}
         </div>
       </div>
     );
@@ -255,12 +282,34 @@ const UrlManagementView = ({ onTabChange, setRole }) => {
                        {new Date(url.expiresAt).toLocaleDateString()}
                     </td>
                     <td style={{ padding: '16px', textAlign: 'center' }}>
-                       <button 
-                        onClick={() => handleDeleteUrl(url.id)}
-                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '8px' }}
-                       >
-                          <Icons.Trash2 size={18} />
-                       </button>
+                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                         <button 
+                          onClick={() => handleSendUrl(url)}
+                          disabled={sendingState[url.id] === 'sending'}
+                          style={{ 
+                            background: sendingState[url.id] === 'sent' ? '#f0fdf4' : '#fff5cc', 
+                            border: 'none', 
+                            color: sendingState[url.id] === 'sent' ? '#16a34a' : '#f59f00', 
+                            cursor: sendingState[url.id] === 'sending' ? 'default' : 'pointer', 
+                            padding: '8px 12px', 
+                            borderRadius: '10px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontWeight: '900',
+                            fontSize: '12px'
+                          }}
+                         >
+                            <Icons.Send size={16} />
+                            {sendingState[url.id] === 'sending' ? '送信中...' : sendingState[url.id] === 'sent' ? '送信済' : '送付'}
+                         </button>
+                         <button 
+                          onClick={() => handleDeleteUrl(url.id)}
+                          style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '8px' }}
+                         >
+                            <Icons.Trash2 size={18} />
+                         </button>
+                       </div>
                     </td>
                   </tr>
                 );

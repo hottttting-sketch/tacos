@@ -1,12 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, Video, Check, AlertCircle, FileVideo, ShieldCheck, Clock, Calendar } from 'lucide-react';
+import { api } from '../utils/api';
 
 const Icons = { Upload, Video, Check, AlertCircle, FileVideo, ShieldCheck, Clock, Calendar };
 
-const UrlRecordingUploadDemo = () => {
+const UrlRecordingUploadDemo = ({ projectId }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedFile, setUploadedFile] = useState(null);
+  const [projectData, setProjectData] = useState(null);
+
+  useEffect(() => {
+    const fetchProject = async () => {
+      if (!projectId) return;
+      const proj = await api.getProjectById(projectId);
+      setProjectData(proj);
+    };
+    fetchProject();
+  }, [projectId]);
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -24,6 +35,9 @@ const UrlRecordingUploadDemo = () => {
       }, 200);
     }
   };
+
+  const broadcastDate = projectData?.metadata?.slots?.[0]?.date || '2026年6月15日(月)';
+  const broadcastTime = projectData?.metadata?.slots?.[0] ? `${projectData.metadata.slots[0].start} 〜 ${projectData.metadata.slots[0].end} (2分)` : '19:15 〜 19:17 (2分)';
 
   return (
     <div style={{ padding: '40px', backgroundColor: '#fdfbf7', minHeight: '100vh', fontFamily: "'Inter', sans-serif" }}>
@@ -49,7 +63,7 @@ const UrlRecordingUploadDemo = () => {
                  </div>
                  <div>
                     <label style={{ fontSize: '10px', color: '#94a3b8', fontWeight: '950', display: 'block' }}>放送日</label>
-                    <div style={{ fontSize: '14px', fontWeight: '800', color: '#1e293b' }}>2026年6月15日(月)</div>
+                    <div style={{ fontSize: '14px', fontWeight: '800', color: '#1e293b' }}>{broadcastDate}</div>
                  </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -58,7 +72,7 @@ const UrlRecordingUploadDemo = () => {
                  </div>
                  <div>
                     <label style={{ fontSize: '10px', color: '#94a3b8', fontWeight: '950', display: 'block' }}>放送時間</label>
-                    <div style={{ fontSize: '14px', fontWeight: '800', color: '#1e293b' }}>19:15 〜 19:17 (2分)</div>
+                    <div style={{ fontSize: '14px', fontWeight: '800', color: '#1e293b' }}>{broadcastTime}</div>
                  </div>
               </div>
            </div>

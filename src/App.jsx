@@ -190,8 +190,7 @@ function App() {
   const renderContent = () => {
     switch (activeTab) {
       case 'users':
-        if (currentApp === 'pudding') return <PuddingView activeTab={activeTab} role={role} setActiveTab={setActiveTab} fullProfile={fullProfile} />;
-        return <UserManagementView role={role} />;
+        return <UserManagementView role={role} currentApp={currentApp} />;
       case 'url-management':
         if (currentApp === 'pudding') return <UrlManagementView onTabChange={setActiveTab} setRole={setRole} />;
         return <TacosUrlManagementView onTabChange={setActiveTab} setRole={setRole} />;
