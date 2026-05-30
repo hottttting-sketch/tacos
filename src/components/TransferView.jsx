@@ -5,13 +5,36 @@ import { api } from '../utils/api';
 import { getContactNames, MEMBERS } from '../constants/members';
 
 const TransferHistoryModal = ({ item, role = 'station', onClose }) => {
-  const historyList = item.history_list || [];
-  
-  // If we just have a history number from mock but no list, generate mock timestamps
-  const displayList = historyList.length > 0 ? historyList : Array.from({ length: item.history || 0 }).map((_, i) => ({
-    timestamp: new Date(Date.now() - (i + 1) * 24 * 60 * 60 * 1000).toLocaleString('ja-JP'),
-    fileName: `移動書_${item.name}_v${item.history - i}.pdf`
-  }));
+  const [historyList, setHistoryList] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      setIsLoading(true);
+      try {
+        const data = await api.getTransferHistories(item.id);
+        if (data && data.length > 0) {
+          setHistoryList(data.map(d => ({
+            timestamp: new Date(d.created_at).toLocaleString('ja-JP'),
+            fileName: d.transfer_file_name || `移動書_${item.name}.pdf`
+          })));
+        } else {
+          // Fallback if no new schema data but old metadata exists
+          const oldList = item.history_list || [];
+          setHistoryList(oldList.length > 0 ? oldList : Array.from({ length: item.history || 0 }).map((_, i) => ({
+            timestamp: new Date(Date.now() - (i + 1) * 24 * 60 * 60 * 1000).toLocaleString('ja-JP'),
+            fileName: `移動書_${item.name}_v${item.history - i}.pdf`
+          })));
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      setIsLoading(false);
+    };
+    fetchHistory();
+  }, [item.id]);
+
+  const displayList = historyList;
 
   return (
     <div className="animate-fade" style={{ 
@@ -159,24 +182,20 @@ const TransferView = ({ role = 'station' }) => {
   const handleSend = async (id) => {
     try {
       const item = transfers.find(t => t.id === id);
-      const nextHistory = (item.history || 0) + 1;
       const fileObj = fileData[id];
+      const fileName = fileObj?.name || `移動書_${item.name}.pdf`;
 
+      // 新テーブルに履歴を追加
+      await api.addTransferHistory(id, 'global', fileObj?.data, fileName, '', currentUser?.id);
+
+      // 旧互換性・ステータス更新のため metadata も一部更新
       const p = await api.getProjectById(id);
-      const currentList = p?.metadata?.transfer_history_list || [];
-      const newList = [{
-        timestamp: new Date().toLocaleString('ja-JP'),
-        fileName: fileObj?.name || `移動書_${item.name}_v${nextHistory}.pdf`
-      }, ...currentList];
-
       await api.updateProject(id, {
         status: 'ordered',
         metadata: {
           ...(p?.metadata || {}),
-          transfer_history: nextHistory,
           transfer_file: fileObj?.data,
-          transfer_file_name: fileObj?.name,
-          transfer_history_list: newList
+          transfer_file_name: fileName
         }
       });
       alert(`移動書データを送信しました。`);

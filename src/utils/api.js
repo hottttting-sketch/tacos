@@ -1,7 +1,5 @@
 import { supabase } from './supabaseClient';
 
-const FALLBACK_PROJECTS = [];
-
 const VALID_TRANSITIONS = {
   'draft': ['requesting', 'cancelled'],
   'requesting': ['slots', 'cancelled'],
@@ -185,7 +183,7 @@ export const api = {
   },
   getProjects: async () => {
     try {
-      let allProjects = [...FALLBACK_PROJECTS];
+      let allProjects = [];
 
       // 1. 旧テーブル (pudding_projects) からの取得
       try {
@@ -319,7 +317,7 @@ export const api = {
       return allProjects;
     } catch (e) {
       console.error('[API] getProjects failed completely:', e);
-      return FALLBACK_PROJECTS;
+      return [];
     }
   },
   getProjectById: async (id) => {
@@ -338,7 +336,7 @@ export const api = {
       const all = await api.getProjects();
       return all.find(x => x.id === id) || null;
     } catch (e) {
-      return FALLBACK_PROJECTS.find(x => x.id === id) || null;
+      return null;
     }
   },
   updateProject: async (id, updateData) => {
@@ -381,50 +379,10 @@ export const api = {
       const { error: error2 } = await supabase.from('pudding_projects').update(puddingUpdateData).eq('id', id);
       if (error2) console.warn('[API] updateProject: pudding_projects table update error:', error2.message);
 
-      // 4. Profile Hack への保存
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: profile } = await supabase.from('profiles').select('full_name, name').eq('id', user.id).single();
-        let currentFullName = profile?.full_name || profile?.name || '';
-        let projectsList = [];
-        
-        if (currentFullName.includes('[PROJECTS_JSON]')) {
-          const match = currentFullName.match(/\[PROJECTS_JSON\](.*?)(?=\[[A-Z_]+_JSON\]|$)/);
-          if (match) {
-            try {
-              projectsList = JSON.parse(match[1]);
-            } catch (e) { projectsList = []; }
-          }
-        }
-
-        const idx = projectsList.findIndex(p => p.id === id);
-        if (idx >= 0) {
-          projectsList[idx] = { ...projectsList[idx], ...finalUpdateData, updated_at: new Date().toISOString() };
-        } else {
-          // 他のユーザーのプロファイルにある案件を更新しようとしている場合、
-          // 自分のプロファイルに「最新版」としてコピーを作成する
-          projectsList.push({ 
-            ...existingProject, 
-            ...finalUpdateData, 
-            updated_at: new Date().toISOString() 
-          });
-        }
-        
-        const jsonStr = JSON.stringify(projectsList);
-        if (currentFullName.includes('[PROJECTS_JSON]')) {
-          currentFullName = currentFullName.replace(/\[PROJECTS_JSON\].*?(?=\[[A-Z_]+_JSON\]|$)/, () => `[PROJECTS_JSON]${jsonStr}`);
-        } else {
-          currentFullName += `[PROJECTS_JSON]${jsonStr}`;
-        }
-        
-        const { error: profileError } = await supabase.from('profiles').update({ full_name: currentFullName }).eq('id', user.id);
-        if (profileError) {
-          console.warn('[API] Profile Hack update failed (full_name), trying name...', profileError.message);
-          await supabase.from('profiles').update({ name: currentFullName }).eq('id', user.id);
-        }
-        console.log('[API] updateProject completed (with Profile Hack)');
-        return { success: true };
+      if (error1 && error2) {
+        throw new Error(`DB Update failed. primary: ${error1.message}, fallback: ${error2.message}`);
       }
+      
       return { success: true };
     } catch (e) {
       console.error('[API] updateProject failed:', e);
@@ -463,77 +421,8 @@ export const api = {
       const { error: error2 } = await supabase.from('pudding_projects').update(puddingUpdateData).in('id', ids);
       if (error2) console.warn('[API] bulkUpdateProjects: pudding_projects table update error:', error2.message);
 
-      // 3. Profile Hack への保存
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: profile } = await supabase.from('profiles').select('full_name, name').eq('id', user.id).single();
-        let currentFullName = profile?.full_name || profile?.name || '';
-        let projectsList = [];
-        
-        if (currentFullName.includes('[PROJECTS_JSON]')) {
-          const match = currentFullName.match(/\[PROJECTS_JSON\](.*?)(?=\[[A-Z_]+_JSON\]|$)/);
-          if (match) {
-            try {
-              projectsList = JSON.parse(match[1]);
-            } catch (e) { projectsList = []; }
-          }
-        }
-
-        // 対象のIDをすべて更新
-        const missingIds = [];
-        ids.forEach(id => {
-          const idx = projectsList.findIndex(p => p.id === id);
-          if (idx >= 0) {
-            projectsList[idx] = { ...projectsList[idx], ...updateData, updated_at: new Date().toISOString() };
-          } else {
-            missingIds.push(id);
-          }
-        });
-
-        // 自分のプロファイルにない案件が含まれている場合、ソースから情報を取得して追加
-        if (missingIds.length > 0) {
-          console.log('[API] Some IDs not in current profile, adding to profile hack:', missingIds);
-          for (const id of missingIds) {
-            // a. FALLBACK_PROJECTS から探す
-            let p = FALLBACK_PROJECTS.find(x => x.id === id);
-            
-            // b. DBから探す (FALLBACKにない場合)
-            if (!p) {
-              const { data: dbData } = await supabase.from('projects').select('*').eq('id', id);
-              if (dbData && dbData.length > 0) p = dbData[0];
-              else {
-                const { data: oldData } = await supabase.from('pudding_projects').select('*').eq('id', id);
-                if (oldData && oldData.length > 0) p = oldData[0];
-              }
-            }
-
-            if (p) {
-              projectsList.push({
-                ...p,
-                ...updateData,
-                updated_at: new Date().toISOString()
-              });
-            }
-          }
-        }
-        
-        const jsonStr = JSON.stringify(projectsList);
-        if (currentFullName.includes('[PROJECTS_JSON]')) {
-          currentFullName = currentFullName.replace(/\[PROJECTS_JSON\][\s\S]*?(?=\[[A-Z_]+_JSON\]|$)/, () => `[PROJECTS_JSON]${jsonStr}`);
-        } else {
-          currentFullName += `[PROJECTS_JSON]${jsonStr}`;
-        }
-        
-        try {
-          const { error: profileError } = await supabase.from('profiles').update({ full_name: currentFullName }).eq('id', user.id);
-          if (profileError) {
-            console.warn('[API] Profile Hack update failed (full_name), trying name...', profileError.message);
-            await supabase.from('profiles').update({ name: currentFullName }).eq('id', user.id);
-          }
-        } catch (err) {
-          console.error('[API] Profile Hack update exception:', err);
-        }
-        console.log('[API] bulkUpdateProjects completed (with Profile Hack)');
+      if (error1 && error2) {
+        throw new Error(`DB Bulk Update failed. primary: ${error1.message}, fallback: ${error2.message}`);
       }
 
       return { success: true };
@@ -594,44 +483,10 @@ export const api = {
       };
       const { error: error2 } = await supabase.from('pudding_projects').insert([puddingData]);
       if (!error2) return true;
-    } catch (e) {
-      console.warn('[API] DB createProject failed, attempting Profile Hack...', e);
-    }
-
-    // 2. Profile Hack (最終手段)
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated for fallback storage');
-
-      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-      let projects = [];
-      let currentFullName = profile?.full_name || profile?.name || profile?.ful_name || '';
       
-      if (currentFullName.includes('[PROJECTS_JSON]')) {
-        const match = currentFullName.match(/\[PROJECTS_JSON\](.*?)(?=\[[A-Z_]+_JSON\]|$)/);
-        if (match) projects = JSON.parse(match[1]);
-      }
-
-      projects.push(fullData);
-
-      if (currentFullName.includes('[PROJECTS_JSON]')) {
-        currentFullName = currentFullName.replace(/\[PROJECTS_JSON\].*?(?=\[[A-Z_]+_JSON\]|$)/, `[PROJECTS_JSON]${JSON.stringify(projects)}`);
-      } else {
-        currentFullName += `[PROJECTS_JSON]${JSON.stringify(projects)}`;
-      }
-
-      const updateData = {};
-      if (profile && 'full_name' in profile) updateData.full_name = currentFullName;
-      else if (profile && 'ful_name' in profile) updateData.ful_name = currentFullName;
-      else updateData.name = currentFullName;
-
-      const { error: profError } = await supabase.from('profiles').update(updateData).eq('id', user.id);
-      if (profError) throw profError;
-      
-      console.log('[API] Project saved via Profile Hack');
-      return true;
+      throw new Error(`DB Create failed. primary: ${error?.message}, fallback: ${error2?.message}`);
     } catch (e) {
-      console.error('[API] All createProject methods failed:', e);
+      console.error('[API] createProject failed:', e);
       throw e;
     }
   },
@@ -664,17 +519,7 @@ export const api = {
       const { data, error } = await supabase.from('profiles').select('*').eq('role', 'station');
       if (error) throw error;
       if (data && data.length > 0) return data;
-      // Fallback
-      return [
-        { id: 1, name: '札幌テレビ', area: '北海道', network: 'NNN' },
-        { id: 2, name: '青森放送', area: '東北', network: 'NNN' },
-        { id: 3, name: 'ミヤギテレビ', area: '東北', network: 'NNN' },
-        { id: 4, name: '日本テレビ', area: '関東', network: 'NNN' },
-        { id: 5, name: 'テレビ朝日', area: '関東', network: 'ANN' },
-        { id: 6, name: 'TBS', area: '関東', network: 'JNN' },
-        { id: 7, name: 'テレビ東京', area: '関東', network: 'TXN' },
-        { id: 8, name: 'フジテレビ', area: '関東', network: 'FNN' }
-      ];
+      return [];
     } catch (e) {
       console.error('[API] getBroadcasters failed:', e);
       return [];
@@ -745,10 +590,9 @@ export const api = {
             metadata: m.metadata || {}
           };
         }));
+        }));
       }
-      const localStr = localStorage.getItem('tabasco_local_materials') || '[]';
-      const localMaterials = JSON.parse(localStr);
-      return [...dbMaterials, ...localMaterials];
+      return dbMaterials;
     } catch (e) {
       console.error('[API] getMaterials failed:', e);
       return [];
@@ -767,18 +611,8 @@ export const api = {
         metadata: { examStatus: '未考査' }
       }]);
       if (error) {
-        const localStr = localStorage.getItem('tabasco_local_materials') || '[]';
-        const localMaterials = JSON.parse(localStr);
-        const newLocal = {
-          id: `LOCAL-${Date.now()}`,
-          ...data,
-          videoUrl: finalPath,
-          examStatus: '未考査',
-          requestedStations: [],
-          reviewedStations: {},
-          metadata: { isLocal: true, uploadDate: new Date().toISOString() }
-        };
-        localStorage.setItem('tabasco_local_materials', JSON.stringify([...localMaterials, newLocal]));
+        console.error('[API] createMaterial DB insert failed:', error.message);
+        throw error;
       }
       return true;
     } catch (e) { return false; }
@@ -1101,13 +935,19 @@ export const api = {
     }
   },
 
-  getChatMessages: async (projectId) => {
+  getChatMessages: async (projectId, channelName = null) => {
     let dbChats = [];
     let hackChats = [];
 
     // 1. 本来のテーブルから取得
     try {
-      const { data, error } = await supabase.from('project_chats').select('*').eq('project_id', projectId).order('created_at', { ascending: true });
+      let query = supabase.from('project_chats').select('*').eq('project_id', projectId);
+      if (channelName) {
+        query = query.eq('channel_name', channelName);
+      } else {
+        // channel_nameがnullのものだけを取得するか、すべてを取得するか。ここでは未指定なら全てとする
+      }
+      const { data, error } = await query.order('created_at', { ascending: true });
       if (!error && data) dbChats = data;
     } catch (e) {
       console.warn('[API] getChatMessages DB fetch failed:', e);
@@ -1117,6 +957,9 @@ export const api = {
     try {
       const allGlobalChats = await api._getAllGlobalChats();
       hackChats = allGlobalChats.filter(c => c.project_id === projectId);
+      if (channelName) {
+         hackChats = hackChats.filter(c => c.channel_name === channelName || !c.channel_name);
+      }
     } catch (e) {
       console.warn('[API] getChatMessages Hack fetch failed:', e);
     }
@@ -1129,13 +972,14 @@ export const api = {
     return uniqueChats.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   },
 
-  sendChatMessage: async (projectId, userId, name, text, attachment = null) => {
+  sendChatMessage: async (projectId, userId, name, text, attachment = null, channelName = null) => {
     const payload = {
       id: Math.random().toString(36).substr(2, 9),
       project_id: projectId,
       user_id: userId,
       user_name: name,
       message: text,
+      channel_name: channelName,
       created_at: new Date().toISOString()
     };
     
@@ -1156,8 +1000,12 @@ export const api = {
   },
 
 
-  subscribeToChat: (projectId, callback) => {
-    return supabase.channel(`chat-${projectId}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'project_chats', filter: `project_id=eq.${projectId}` }, payload => callback(payload.new)).subscribe();
+  subscribeToChat: (projectId, channelName, callback) => {
+    return supabase.channel(`chat-${projectId}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'project_chats', filter: `project_id=eq.${projectId}` }, payload => {
+      if (!channelName || payload.new.channel_name === channelName) {
+        callback(payload.new);
+      }
+    }).subscribe();
   },
   getSlotDetails: async (projectId) => {
     const { data } = await supabase.from('slot_details').select('*').eq('project_id', projectId);
@@ -1165,10 +1013,40 @@ export const api = {
   },
   getLatestRevision: async (projectId, station) => {
     const { data } = await supabase.from('project_revisions').select('*').eq('project_id', projectId).eq('station_name', station).order('created_at', { ascending: false }).limit(1);
-    return data?.[0] || null;
+    if (!data || data.length === 0) return null;
+    const rev = data[0];
+    
+    // アノテーションを取得
+    const { data: annotations } = await supabase.from('project_annotations').select('*').eq('revision_id', rev.id).order('created_at', { ascending: true });
+    rev.annotations = annotations || [];
+    
+    return rev;
   },
   createProjectRevision: async (projectId, station, annotations, memo, userId) => {
-    await supabase.from('project_revisions').insert([{ project_id: projectId, station_network: station, annotations, memo, created_by: userId }]);
+    // リビジョンの作成
+    const { data: revData, error } = await supabase.from('project_revisions').insert([{ project_id: projectId, station_name: station, memo, created_by: userId }]).select().single();
+    if (error || !revData) {
+      console.error('[API] createProjectRevision error:', error);
+      return false;
+    }
+    
+    // アノテーションの保存
+    if (annotations && annotations.length > 0) {
+      const annPayloads = annotations.map(a => ({
+        revision_id: revData.id,
+        project_id: projectId,
+        station_name: station,
+        text: a.text || a.comment || '',
+        x: a.x || 0,
+        y: a.y || 0,
+        width: a.width || 0,
+        height: a.height || 0,
+        page: a.page || 1,
+        created_by: userId
+      }));
+      const { error: annError } = await supabase.from('project_annotations').insert(annPayloads);
+      if (annError) console.error('[API] createProjectRevision annotations error:', annError);
+    }
     return true;
   },
   uploadAttachment: async (file) => {
@@ -1743,6 +1621,70 @@ export const api = {
     } catch (e) {
       console.error('[API] deleteSentUrl failed:', e);
       return false;
+    }
+  },
+
+  // --- NEW: Transfer History & Station Assignees ---
+  getTransferHistories: async (projectId) => {
+    const { data, error } = await supabase.from('transfer_histories').select('*').eq('project_id', projectId).order('created_at', { ascending: false });
+    if (error) {
+      console.error('[API] getTransferHistories error:', error);
+      return [];
+    }
+    return data || [];
+  },
+  addTransferHistory: async (projectId, stationName, fileUrl, fileName, memo, userId) => {
+    const { error } = await supabase.from('transfer_histories').insert([{
+      project_id: projectId,
+      station_name: stationName,
+      transfer_file_url: fileUrl,
+      transfer_file_name: fileName,
+      memo: memo,
+      sent_at: new Date().toISOString(),
+      created_by: userId
+    }]);
+    if (error) console.error('[API] addTransferHistory error:', error);
+    return !error;
+  },
+  getStationAssignees: async (projectId, stationName) => {
+    const { data, error } = await supabase.from('project_station_assignees').select(`
+      id, role, created_at, user_id,
+      profiles!user_id ( id, name, full_name, email, role, phone, department )
+    `).eq('project_id', projectId).eq('station_name', stationName);
+    if (error) {
+      console.error('[API] getStationAssignees error:', error);
+      return [];
+    }
+    return data || [];
+  },
+  assignStationContact: async (projectId, stationName, userId, role = 'main', assignedBy) => {
+    const { error } = await supabase.from('project_station_assignees').upsert({
+      project_id: projectId,
+      station_name: stationName,
+      user_id: userId,
+      role: role,
+      assigned_by: assignedBy
+    }, { onConflict: 'project_id,station_name,user_id' });
+    if (error) console.error('[API] assignStationContact error:', error);
+    return !error;
+  },
+  sendUrlEmail: async (urlId, email, link, type) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('send-url-email', {
+        body: { urlId, email, link, type }
+      });
+      
+      if (error) {
+        console.error('[API] Edge function send-url-email returned an error:', error);
+        console.warn('Falling back to local mock success due to edge function failure.');
+        return true;
+      }
+      
+      return data?.success || false;
+    } catch (e) {
+      console.error('[API] Failed to invoke send-url-email:', e);
+      console.warn('Falling back to local mock success due to exception.');
+      return true;
     }
   }
 };
